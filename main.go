@@ -111,7 +111,18 @@ func main() {
 
 			mode.CryptBlocks(ciphertext, ciphertext)
 
-			iface.Write(ciphertext[2:(2 + int(ciphertext[0]) + (256 * int(ciphertext[1])))])
+			size := int(ciphertext[0]) + (256 * int(ciphertext[1]))
+			if (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 {
+				fmt.Println("Invalid size field in decrypted message", size, (n - aes.BlockSize - 2))
+				continue
+			}
+
+			if 4 != ((ciphertext)[2] >> 4) {
+				fmt.Println("Non IPv4 packet after decryption, possible corupted packet")
+				continue
+			}
+
+			iface.Write(ciphertext[2 : 2+size])
 		}
 	}()
 
