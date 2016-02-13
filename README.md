@@ -2,7 +2,8 @@
 
 This repo is just an answer on a question "how much time it'll take to write my own simple VPN in golang"  
 It was less than I can ever image - little bit more than 3 hours.  
-Update: next 30 minut was spent on dynamic config reloading on HUP sugnal
+Update: next 30 minut was spent on dynamic config reloading on HUP signal  
+Update: next 2 hours to use only one UDP socket, support broadcast and multicast, support config reload and encryption key change without going offline  
 
 So, LCVPN is
   - Very light and easy (one similar config on all hosts)
@@ -30,6 +31,7 @@ where **192.168.3.3/23** is internal vpn ip which will be setted on tun interfac
 [main]
 port = 23456
 aeskey = 4A34E352D7C32FC42F1CEB0CAA54D40E9D1EEDAF14EBCBCECA429E1B2EF72D21
+#altkey = 1111111117C32FC42F1CEB0CAA54D40E9D1EEDAF14EBCBCECA429E1B2EF72D21
 broadcast = 192.168.3.255
 
 [remote "prague"]
@@ -53,6 +55,16 @@ number of remotes is virtualy unlimited, each takes about 256 bytes in memory
 
 Config is reloaded on HUP signal. In case of invalid config just log message will appeared, previous one is used.  
 P.S.: listening udp socket is not reopened for now, so on port change restart is needed
+
+### Online key change
+
+**altkey** configuration option allows specify alternative AES key that will be used in case if decription with primary
+one failed. This allow to use next algoritm to change keys without link going offline:
+  - In normal state only **aeskey** is set (setting altkey is more cpu-consuming)
+  - Set altkey to new key on all hosts and send HUP signal
+  - Exchange altkey and aeskey on all hosts and send HUP signal
+  - Remove altkey (with old key) from configs on all hosts and send HUP signal again
+  - We are running with new key :)
 
 ### Plans
 

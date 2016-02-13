@@ -107,22 +107,53 @@ func main() {
 			iv := buf[:aes.BlockSize]
 			ciphertext := buf[aes.BlockSize:n]
 
-			mode := cipher.NewCBCDecrypter(config.Load().(VPNState).Main.block, iv)
+			conf := config.Load().(VPNState)
 
-			mode.CryptBlocks(ciphertext, ciphertext)
+			mode := cipher.NewCBCDecrypter(conf.Main.block, iv)
 
-			size := int(ciphertext[0]) + (256 * int(ciphertext[1]))
-			if (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 {
-				fmt.Println("Invalid size field in decrypted message", size, (n - aes.BlockSize - 2))
-				continue
-			}
+			var size int
 
-			if 4 != ((ciphertext)[2] >> 4) {
-				fmt.Println("Non IPv4 packet after decryption, possible corupted packet")
-				continue
+			if conf.Main.hasalt {
+
+				// if we have alternative key we need store orig packet for second try
+
+				pcopy := make([]byte, n)
+				copy(pcopy, buf[:n])
+
+				mode.CryptBlocks(ciphertext, ciphertext)
+
+				size = int(ciphertext[0]) + (256 * int(ciphertext[1]))
+				if (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 || 4 != ((ciphertext)[2]>>4) {
+					// don't looks like anything is ok, trying second key
+
+					copy(buf[:n], pcopy)
+					cipher.NewCBCDecrypter(conf.Main.altblock, iv).CryptBlocks(ciphertext, ciphertext)
+
+					size = int(ciphertext[0]) + (256 * int(ciphertext[1]))
+					if (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 || 4 != ((ciphertext)[2]>>4) {
+						fmt.Println("Invalid size field or IPv4 id in decrypted message", size, (n - aes.BlockSize - 2))
+						continue
+					}
+				}
+
+			} else {
+
+				mode.CryptBlocks(ciphertext, ciphertext)
+
+				size = int(ciphertext[0]) + (256 * int(ciphertext[1]))
+				if (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 {
+					fmt.Println("Invalid size field in decrypted message", size, (n - aes.BlockSize - 2))
+					continue
+				}
+
+				if 4 != ((ciphertext)[2] >> 4) {
+					fmt.Println("Non IPv4 packet after decryption, possible corupted packet")
+					continue
+				}
 			}
 
 			iface.Write(ciphertext[2 : 2+size])
+
 		}
 	}()
 

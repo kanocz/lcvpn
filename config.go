@@ -21,9 +21,12 @@ type VPNState struct {
 	Main struct {
 		Port      int
 		AesKey    string
+		AltKey    string
 		Broadcast string
 		bcastIP   [4]byte
 		block     cipher.Block
+		hasalt    bool
+		altblock  cipher.Block
 	}
 	Remote map[string]*struct {
 		ExtIP string
@@ -60,6 +63,23 @@ func readConfig() error {
 	newConfig.Main.block, err = aes.NewCipher(key)
 	if nil != err {
 		return err
+	}
+
+	if "" != newConfig.Main.AltKey {
+		key, err := hex.DecodeString(newConfig.Main.AltKey)
+		if nil != err {
+			return errors.New("main.altkey is not valid hex string")
+		}
+		if (len(key) != 16) && (len(key) != 24) && (len(key) != 32) {
+			return errors.New("Length of altkey must be 16, 24 or 32 bytes (32, 48 or 64 hex symbols) to select AES-128, AES-192 or AES-256")
+		}
+		newConfig.Main.altblock, err = aes.NewCipher(key)
+		if nil != err {
+			return err
+		}
+		newConfig.Main.hasalt = true
+	} else {
+		newConfig.Main.hasalt = false
 	}
 
 	newConfig.remotes = make(map[[4]byte]*net.UDPAddr, len(newConfig.Remote))
