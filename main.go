@@ -126,6 +126,12 @@ func main() {
 		}
 	}()
 
+	// first time fill with random numbers
+	ivbuf := make([]byte, aes.BlockSize)
+	if _, err := io.ReadFull(rand.Reader, ivbuf); err != nil {
+		log.Fatalln("Unable to get rand data:", err)
+	}
+
 	var packet IPPacket = make([]byte, BUFFERSIZE)
 	for {
 		plen, err := iface.Read(packet[2:])
@@ -158,13 +164,14 @@ func main() {
 
 			ciphertext := make([]byte, aes.BlockSize+clen)
 			iv := ciphertext[:aes.BlockSize]
-			if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-				log.Println("Unable to get rand data:", err)
-				continue
-			}
+
+			copy(iv, ivbuf)
 
 			mode := cipher.NewCBCEncrypter(c.Main.block, iv)
 			mode.CryptBlocks(ciphertext[aes.BlockSize:], packet[:clen])
+
+			// save new iv
+			copy(ivbuf, ciphertext[clen-aes.BlockSize:])
 
 			if ok {
 				n, err := lstnConn.WriteToUDP(ciphertext, addr)

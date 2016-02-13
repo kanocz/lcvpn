@@ -56,4 +56,4 @@ P.S.: listening udp socket is not reopened for now, so on port change restart is
 
 ### Plans
 
-Maybe I'll implement some optimizations like using worker threads, reusing part of last message instead of crypto/rand and so on :)
+Maybe I'll implement some optimizations like using worker threads and so on :)
