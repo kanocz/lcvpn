@@ -30,6 +30,7 @@ where **192.168.3.3/23** is internal vpn ip which will be setted on tun interfac
 [main]
 port = 23456
 aeskey = 4A34E352D7C32FC42F1CEB0CAA54D40E9D1EEDAF14EBCBCECA429E1B2EF72D21
+broadcast = 192.168.3.255
 
 [remote "prague"]
 ExtIP = 46.234.105.229

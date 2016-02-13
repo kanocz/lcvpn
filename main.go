@@ -128,17 +128,12 @@ func main() {
 			continue
 		}
 
-		// TODO something with multicast... does anybody needs them? :D
-		if packet.IsMulticast() {
-			continue
-		}
-
 		// each time get pointer to (probably) new config
 		c := config.Load().(VPNState)
 
 		dst := packet.Dst()
 		addr, ok := c.remotes[dst]
-		if ok {
+		if ok || dst == c.Main.bcastIP || packet.IsMulticast() {
 			// store orig packet len
 			packet[0] = byte(plen % 256)
 			packet[1] = byte(plen / 256)
@@ -160,12 +155,25 @@ func main() {
 			mode := cipher.NewCBCEncrypter(c.Main.block, iv)
 			mode.CryptBlocks(ciphertext[aes.BlockSize:], packet[:clen])
 
-			n, err := lstnConn.WriteToUDP(ciphertext, addr)
-			if nil != err {
-				log.Println("Error sending package:", err)
-			}
-			if n != len(ciphertext) {
-				log.Println("Only ", n, " bytes of ", len(ciphertext), " sent")
+			if ok {
+				n, err := lstnConn.WriteToUDP(ciphertext, addr)
+				if nil != err {
+					log.Println("Error sending package:", err)
+				}
+				if n != len(ciphertext) {
+					log.Println("Only ", n, " bytes of ", len(ciphertext), " sent")
+				}
+			} else {
+				// multicast or broadcast
+				for _, addr := range c.remotes {
+					n, err := lstnConn.WriteToUDP(ciphertext, addr)
+					if nil != err {
+						log.Println("Error sending package:", err)
+					}
+					if n != len(ciphertext) {
+						log.Println("Only ", n, " bytes of ", len(ciphertext), " sent")
+					}
+				}
 			}
 		} else {
 			fmt.Println("Unknown dst", dst)

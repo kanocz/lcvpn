@@ -19,9 +19,11 @@ import (
 
 type VPNState struct {
 	Main struct {
-		Port   int
-		AesKey string
-		block  cipher.Block
+		Port      int
+		AesKey    string
+		Broadcast string
+		bcastIP   [4]byte
+		block     cipher.Block
 	}
 	Remote map[string]*struct {
 		ExtIP string
@@ -74,6 +76,11 @@ func readConfig() error {
 		}
 
 		newConfig.remotes[[4]byte{xLocalIP[12], xLocalIP[13], xLocalIP[14], xLocalIP[15]}] = rmtAddr
+	}
+
+	xBcastIP := net.ParseIP(newConfig.Main.Broadcast)
+	if nil != xBcastIP {
+		newConfig.Main.bcastIP = [4]byte{xBcastIP[12], xBcastIP[13], xBcastIP[14], xBcastIP[15]}
 	}
 
 	config.Store(newConfig)
