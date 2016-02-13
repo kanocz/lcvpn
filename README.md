@@ -1,7 +1,8 @@
 # LCVPN - VPN in 3 hours
 
 This repo is just an answer on a question "how much time it'll take to write my own simple VPN in golang"  
-It was less than I can ever image - little bit more than 3 hours.
+It was less than I can ever image - little bit more than 3 hours.  
+Update: next 30 minut was spent on dynamic config reloading on HUP sugnal
 
 So, LCVPN is
   - Very light and easy (one similar config on all hosts)
@@ -44,8 +45,13 @@ LocIP = 192.168.3.3
 ```
 
 where port is UDP port for communication  
-aeskey is hex form of 16, 24 or 32 bytes key (for AES-128, AES-192 or AES-256)
-number of remotes is virtualy unlimited, but maximal numbers of opened files have to be adjusted if you plan to use more than 1020 (each use one socket + listening socket and so on)
+aeskey is hex form of 16, 24 or 32 bytes key (for AES-128, AES-192 or AES-256)  
+number of remotes is virtualy unlimited, each takes about 256 bytes in memory
+
+### Config reload
+
+Config is reloaded on HUP signal. In case of invalid config just log message will appeared, previous one is used.  
+P.S.: listening udp socket is not reopened for now, so on port change restart is needed
 
 ### Plans
 

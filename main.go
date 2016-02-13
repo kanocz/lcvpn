@@ -4,7 +4,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -28,7 +27,7 @@ var (
 
 func main() {
 	flag.Parse()
-	readConfig()
+	initConfig()
 
 	if "" == *localIP {
 		flag.Usage()
@@ -39,24 +38,6 @@ func main() {
 	if nil != err {
 		flag.Usage()
 		log.Fatalln("\nlocal ip is not in ip/cidr format")
-	}
-
-	if "" == config.Main.AesKey {
-		log.Fatalln("main.aeskey is empty")
-	}
-
-	key, err := hex.DecodeString(config.Main.AesKey)
-	if nil != err {
-		log.Fatalln("Error unhexing key:", err)
-	}
-
-	if (len(key) != 16) && (len(key) != 24) && (len(key) != 32) {
-		log.Fatalln("Length of aeskey must be 16, 24 or 32 bytes (32, 48 or 64 hex symbols) to select AES-128, AES-192 or AES-256")
-	}
-
-	block, err := aes.NewCipher(key)
-	if nil != err {
-		log.Fatalln("NewCipher failed:", err)
 	}
 
 	iface, err := water.NewTUN("")
@@ -89,8 +70,9 @@ func main() {
 
 	log.Println("Interface parameters configured")
 
-	// listen to local socket
-	lstnAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%v", config.Main.Port))
+	// listen to local socket...
+	// TODO check if reopen socket is needed after config reload
+	lstnAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%v", config.Load().(VPNState).Main.Port))
 	if nil != err {
 		log.Fatalln("Unable to get UDP socket:", err)
 	}
@@ -106,14 +88,13 @@ func main() {
 		buf := make([]byte, 1500)
 		for {
 			n, _, err := lstnConn.ReadFromUDP(buf)
-			// n, addr, err := lstnConn.ReadFromUDP(buf)
-			// fmt.Println("Received ", n, " bytes from ", addr)
 
 			if err != nil {
 				fmt.Println("Error: ", err)
 				continue
 			}
 
+			// ReadFromUDP can return 0 bytes on timeout
 			if 0 == n {
 				continue
 			}
@@ -126,43 +107,13 @@ func main() {
 			iv := buf[:aes.BlockSize]
 			ciphertext := buf[aes.BlockSize:n]
 
-			mode := cipher.NewCBCDecrypter(block, iv)
+			mode := cipher.NewCBCDecrypter(config.Load().(VPNState).Main.block, iv)
 
 			mode.CryptBlocks(ciphertext, ciphertext)
 
 			iface.Write(ciphertext[2:(2 + int(ciphertext[0]) + (256 * int(ciphertext[1])))])
 		}
 	}()
-
-	remotes := map[[4]byte]*net.UDPConn{}
-
-	for name, r := range config.Remote {
-		fmt.Printf("%s: %+v\n", name, *r)
-
-		locAddr, err := net.ResolveUDPAddr("udp", ":")
-		if nil != err {
-			log.Fatalln("Stupid error #1")
-		}
-
-		rmtAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", r.ExtIP, config.Main.Port))
-		if nil != err {
-			log.Fatalln("Invalid addres for server", name, ":", err)
-		}
-
-		conn, err := net.DialUDP("udp", locAddr, rmtAddr)
-		if nil != err {
-			log.Fatalln("Unable to create outbound socket for server", name, ":", err)
-		}
-		defer conn.Close()
-
-		xLocalIP := net.ParseIP(r.LocIP)
-		if nil == xLocalIP {
-			log.Fatalln("Invalid local ip", r.LocIP, "for server", name)
-		}
-		remotes[[4]byte{xLocalIP[12], xLocalIP[13], xLocalIP[14], xLocalIP[15]}] = conn
-	}
-
-	fmt.Printf("%+v\n", remotes)
 
 	var packet IPPacket = make([]byte, BUFFERSIZE)
 	for {
@@ -182,11 +133,11 @@ func main() {
 			continue
 		}
 
-		// src := packet.Src()
-		dst := packet.Dst()
-		// fmt.Print(src, " -> ", dst)
+		// each time get pointer to (probably) new config
+		c := config.Load().(VPNState)
 
-		conn, ok := remotes[dst]
+		dst := packet.Dst()
+		addr, ok := c.remotes[dst]
 		if ok {
 			// store orig packet len
 			packet[0] = byte(plen % 256)
@@ -206,17 +157,19 @@ func main() {
 				continue
 			}
 
-			mode := cipher.NewCBCEncrypter(block, iv)
+			mode := cipher.NewCBCEncrypter(c.Main.block, iv)
 			mode.CryptBlocks(ciphertext[aes.BlockSize:], packet[:clen])
 
-			conn.Write(ciphertext)
+			n, err := lstnConn.WriteToUDP(ciphertext, addr)
+			if nil != err {
+				log.Println("Error sending package:", err)
+			}
+			if n != len(ciphertext) {
+				log.Println("Only ", n, " bytes of ", len(ciphertext), " sent")
+			}
 		} else {
 			fmt.Println("Unknown dst", dst)
-
 		}
-
-		// header, _ := ipv4.ParseHeader(packet[2:])
-		// fmt.Printf("%+v (%+v)\n", header, err)
 	}
 
 }
