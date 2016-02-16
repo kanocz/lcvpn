@@ -15,6 +15,8 @@ So, LCVPN is
   - Due to use so_reuseport better result in case of bigger number of hosts
   - Please don't use it in production without testing, it's beta stage
 
+![alt tag](https://raw.githubusercontent.com/kanocz/lcvpn/master/topology.png)
+
 ### Install and run
 
 You need golang (at least 1.5) installed and configured:
