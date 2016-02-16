@@ -19,19 +19,24 @@ import (
 
 type VPNState struct {
 	Main struct {
-		Port      int
-		AesKey    string
-		AltKey    string
-		Broadcast string
-		bcastIP   [4]byte
-		block     cipher.Block
-		hasalt    bool
-		altblock  cipher.Block
+		Port        int
+		AesKey      string
+		AltKey      string
+		Broadcast   string
+		RecvThreads int
+		SendThreads int
+
+		// filled by readConfig
+		bcastIP  [4]byte
+		block    cipher.Block
+		hasalt   bool
+		altblock cipher.Block
 	}
 	Remote map[string]*struct {
 		ExtIP string
 		LocIP string
 	}
+	// filled by readConfig
 	remotes map[[4]byte]*net.UDPAddr
 }
 
@@ -101,6 +106,14 @@ func readConfig() error {
 	xBcastIP := net.ParseIP(newConfig.Main.Broadcast)
 	if nil != xBcastIP {
 		newConfig.Main.bcastIP = [4]byte{xBcastIP[12], xBcastIP[13], xBcastIP[14], xBcastIP[15]}
+	}
+
+	if newConfig.Main.RecvThreads < 1 {
+		newConfig.Main.RecvThreads = 1
+	}
+
+	if newConfig.Main.SendThreads < 1 {
+		newConfig.Main.SendThreads = 1
 	}
 
 	config.Store(newConfig)

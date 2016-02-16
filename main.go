@@ -9,7 +9,11 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
+	"os/signal"
+	"syscall"
 
+	"github.com/matishsiao/go_reuseport"
 	"github.com/milosgajdos83/tenus"
 	"github.com/songgao/water"
 	"golang.org/x/net/ipv4"
@@ -25,138 +29,85 @@ var (
 	localIP = flag.String("local", "", "Local tun interface IP/MASK like 192.168.3.3/24")
 )
 
-func main() {
-	flag.Parse()
-	initConfig()
-
-	if "" == *localIP {
-		flag.Usage()
-		log.Fatalln("\nlocal ip is not specified")
-	}
-
-	lIP, lNet, err := net.ParseCIDR(*localIP)
-	if nil != err {
-		flag.Usage()
-		log.Fatalln("\nlocal ip is not in ip/cidr format")
-	}
-
-	iface, err := water.NewTUN("")
-
-	if nil != err {
-		log.Fatalln("Unable to allocate TUN interface:", err)
-	}
-
-	log.Println("Interface allocated:", iface.Name())
-
-	link, err := tenus.NewLinkFrom(iface.Name())
-	if nil != err {
-		log.Fatalln("Unable to get interface info", err)
-	}
-
-	err = link.SetLinkMTU(MTU)
-	if nil != err {
-		log.Fatalln("Unable to set MTU to 1300 on interface")
-	}
-
-	err = link.SetLinkIp(lIP, lNet)
-	if nil != err {
-		log.Fatalln("Unable to set IP to ", lIP, "/", lNet, " on interface")
-	}
-
-	err = link.SetLinkUp()
-	if nil != err {
-		log.Fatalln("Unable to UP interface")
-	}
-
-	log.Println("Interface parameters configured")
-
-	// listen to local socket...
-	// TODO check if reopen socket is needed after config reload
-	lstnAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%v", config.Load().(VPNState).Main.Port))
+func rcvrThread(proto string, port int, iface *water.Interface) {
+	conn, err := reuseport.NewReusableUDPPortConn(proto, fmt.Sprintf(":%v", port))
 	if nil != err {
 		log.Fatalln("Unable to get UDP socket:", err)
 	}
 
-	lstnConn, err := net.ListenUDP("udp", lstnAddr)
-	if nil != err {
-		log.Fatalln("Unable to listen on UDP socket:", err)
-	}
-	defer lstnConn.Close()
+	buf := make([]byte, 1500)
+	for {
+		n, _, err := conn.ReadFrom(buf)
 
-	// only one thread for now
-	go func() {
-		buf := make([]byte, 1500)
-		for {
-			n, _, err := lstnConn.ReadFromUDP(buf)
+		if err != nil {
+			fmt.Println("Error: ", err)
+			continue
+		}
 
-			if err != nil {
-				fmt.Println("Error: ", err)
-				continue
-			}
+		// ReadFromUDP can return 0 bytes on timeout
+		if 0 == n {
+			continue
+		}
 
-			// ReadFromUDP can return 0 bytes on timeout
-			if 0 == n {
-				continue
-			}
+		if n%aes.BlockSize != 0 {
+			fmt.Println("packet size ", n, " is not a multiple of the block size")
+			continue
+		}
 
-			if n%aes.BlockSize != 0 {
-				fmt.Println("packet size ", n, " is not a multiple of the block size")
-				continue
-			}
+		iv := buf[:aes.BlockSize]
+		ciphertext := buf[aes.BlockSize:n]
 
-			iv := buf[:aes.BlockSize]
-			ciphertext := buf[aes.BlockSize:n]
+		conf := config.Load().(VPNState)
 
-			conf := config.Load().(VPNState)
+		mode := cipher.NewCBCDecrypter(conf.Main.block, iv)
 
-			mode := cipher.NewCBCDecrypter(conf.Main.block, iv)
+		var size int
 
-			var size int
+		if conf.Main.hasalt {
 
-			if conf.Main.hasalt {
+			// if we have alternative key we need store orig packet for second try
 
-				// if we have alternative key we need store orig packet for second try
+			pcopy := make([]byte, n)
+			copy(pcopy, buf[:n])
 
-				pcopy := make([]byte, n)
-				copy(pcopy, buf[:n])
+			mode.CryptBlocks(ciphertext, ciphertext)
 
-				mode.CryptBlocks(ciphertext, ciphertext)
+			size = int(ciphertext[0]) + (256 * int(ciphertext[1]))
+			if (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 || 4 != ((ciphertext)[2]>>4) {
+				// don't looks like anything is ok, trying second key
+
+				copy(buf[:n], pcopy)
+				cipher.NewCBCDecrypter(conf.Main.altblock, iv).CryptBlocks(ciphertext, ciphertext)
 
 				size = int(ciphertext[0]) + (256 * int(ciphertext[1]))
 				if (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 || 4 != ((ciphertext)[2]>>4) {
-					// don't looks like anything is ok, trying second key
-
-					copy(buf[:n], pcopy)
-					cipher.NewCBCDecrypter(conf.Main.altblock, iv).CryptBlocks(ciphertext, ciphertext)
-
-					size = int(ciphertext[0]) + (256 * int(ciphertext[1]))
-					if (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 || 4 != ((ciphertext)[2]>>4) {
-						fmt.Println("Invalid size field or IPv4 id in decrypted message", size, (n - aes.BlockSize - 2))
-						continue
-					}
-				}
-
-			} else {
-
-				mode.CryptBlocks(ciphertext, ciphertext)
-
-				size = int(ciphertext[0]) + (256 * int(ciphertext[1]))
-				if (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 {
-					fmt.Println("Invalid size field in decrypted message", size, (n - aes.BlockSize - 2))
-					continue
-				}
-
-				if 4 != ((ciphertext)[2] >> 4) {
-					fmt.Println("Non IPv4 packet after decryption, possible corupted packet")
+					fmt.Println("Invalid size field or IPv4 id in decrypted message", size, (n - aes.BlockSize - 2))
 					continue
 				}
 			}
 
-			iface.Write(ciphertext[2 : 2+size])
+		} else {
 
+			mode.CryptBlocks(ciphertext, ciphertext)
+
+			size = int(ciphertext[0]) + (256 * int(ciphertext[1]))
+			if (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 {
+				fmt.Println("Invalid size field in decrypted message", size, (n - aes.BlockSize - 2))
+				continue
+			}
+
+			if 4 != ((ciphertext)[2] >> 4) {
+				fmt.Println("Non IPv4 packet after decryption, possible corupted packet")
+				continue
+			}
 		}
-	}()
 
+		iface.Write(ciphertext[2 : 2+size])
+
+	}
+}
+
+func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 	// first time fill with random numbers
 	ivbuf := make([]byte, aes.BlockSize)
 	if _, err := io.ReadFull(rand.Reader, ivbuf); err != nil {
@@ -205,7 +156,7 @@ func main() {
 			copy(ivbuf, ciphertext[clen-aes.BlockSize:])
 
 			if ok {
-				n, err := lstnConn.WriteToUDP(ciphertext, addr)
+				n, err := conn.WriteToUDP(ciphertext, addr)
 				if nil != err {
 					log.Println("Error sending package:", err)
 				}
@@ -215,7 +166,7 @@ func main() {
 			} else {
 				// multicast or broadcast
 				for _, addr := range c.remotes {
-					n, err := lstnConn.WriteToUDP(ciphertext, addr)
+					n, err := conn.WriteToUDP(ciphertext, addr)
 					if nil != err {
 						log.Println("Error sending package:", err)
 					}
@@ -229,4 +180,81 @@ func main() {
 		}
 	}
 
+}
+
+func main() {
+	flag.Parse()
+	initConfig()
+
+	if "" == *localIP {
+		flag.Usage()
+		log.Fatalln("\nlocal ip is not specified")
+	}
+
+	lIP, lNet, err := net.ParseCIDR(*localIP)
+	if nil != err {
+		flag.Usage()
+		log.Fatalln("\nlocal ip is not in ip/cidr format")
+	}
+
+	iface, err := water.NewTUN("")
+
+	if nil != err {
+		log.Fatalln("Unable to allocate TUN interface:", err)
+	}
+
+	log.Println("Interface allocated:", iface.Name())
+
+	link, err := tenus.NewLinkFrom(iface.Name())
+	if nil != err {
+		log.Fatalln("Unable to get interface info", err)
+	}
+
+	err = link.SetLinkMTU(MTU)
+	if nil != err {
+		log.Fatalln("Unable to set MTU to 1300 on interface")
+	}
+
+	err = link.SetLinkIp(lIP, lNet)
+	if nil != err {
+		log.Fatalln("Unable to set IP to ", lIP, "/", lNet, " on interface")
+	}
+
+	err = link.SetLinkUp()
+	if nil != err {
+		log.Fatalln("Unable to UP interface")
+	}
+
+	log.Println("Interface parameters configured")
+
+	conf := config.Load().(VPNState)
+
+	// Start listen threads
+	for i := 0; i < conf.Main.RecvThreads; i++ {
+		go rcvrThread("udp4", conf.Main.Port, iface)
+	}
+
+	// init udp socket for write
+
+	writeAddr, err := net.ResolveUDPAddr("udp", ":")
+	if nil != err {
+		log.Fatalln("Unable to get UDP socket:", err)
+	}
+
+	writeConn, err := net.ListenUDP("udp", writeAddr)
+	if nil != err {
+		log.Fatalln("Unable to create UDP socket:", err)
+	}
+	defer writeConn.Close()
+
+	// Start sender threads
+
+	for i := 0; i < conf.Main.SendThreads; i++ {
+		go sndrThread(writeConn, iface)
+	}
+
+	exitChan := make(chan os.Signal, 1)
+	signal.Notify(exitChan, syscall.SIGTERM)
+
+	<-exitChan
 }
