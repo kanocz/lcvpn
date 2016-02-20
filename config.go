@@ -23,6 +23,7 @@ type VPNState struct {
 		AesKey      string
 		AltKey      string
 		Broadcast   string
+		NetCIDR     int
 		RecvThreads int
 		SendThreads int
 
@@ -31,6 +32,7 @@ type VPNState struct {
 		block    cipher.Block
 		hasalt   bool
 		altblock cipher.Block
+		local    string
 	}
 	Remote map[string]*struct {
 		ExtIP string
@@ -41,9 +43,27 @@ type VPNState struct {
 }
 
 var (
-	configfile = flag.String("config", "lcvpn.conf", "Config file")
+	configfile = flag.String("config", "/etc/lcvpn.conf", "Config file")
+	local      = flag.String("local", "", "ID from \"remotes\" which idtenify this host [default: autodetect]")
 	config     atomic.Value
 )
+
+func getLocalIPsMap() map[string]bool {
+	result := map[string]bool{}
+
+	ipnetlist, err := net.InterfaceAddrs()
+	if nil != err {
+		return result
+	}
+
+	for _, _ipnet := range ipnetlist {
+		if ipnet, ok := _ipnet.(*net.IPNet); ok {
+			result[ipnet.IP.String()] = true
+		}
+	}
+
+	return result
+}
 
 func readConfig() error {
 	var newConfig VPNState
@@ -54,6 +74,9 @@ func readConfig() error {
 	}
 	if newConfig.Main.Port < 1 || newConfig.Main.Port > 65535 {
 		return errors.New("main.port is invalid in config")
+	}
+	if newConfig.Main.NetCIDR < 8 || newConfig.Main.NetCIDR > 30 {
+		return errors.New("netCIDR can't be less than 8 or greater than 30")
 	}
 	if "" == newConfig.Main.AesKey {
 		return errors.New("main.aeskey is empty")
@@ -85,6 +108,27 @@ func readConfig() error {
 		newConfig.Main.hasalt = true
 	} else {
 		newConfig.Main.hasalt = false
+	}
+
+	// local ip detect or select
+	if "" != *local {
+		host, ok := newConfig.Remote[*local]
+		if !ok {
+			return errors.New(fmt.Sprintf("Remote with id \"%s\" not found in %s"))
+		}
+		newConfig.Main.local = fmt.Sprintf("%s/%d", host.LocIP, newConfig.Main.NetCIDR)
+	} else {
+		ips := getLocalIPsMap()
+		for name, r := range newConfig.Remote {
+			if _, ok := ips[r.ExtIP]; ok {
+				newConfig.Main.local = fmt.Sprintf("%s/%d", r.LocIP, newConfig.Main.NetCIDR)
+				log.Printf("%s (%s) is detected as local ip\n", newConfig.Main.local, name)
+				break
+			}
+		}
+		if "" == newConfig.Main.local {
+			return errors.New(fmt.Sprintf("Local ip can't be detected"))
+		}
 	}
 
 	newConfig.remotes = make(map[[4]byte]*net.UDPAddr, len(newConfig.Remote))

@@ -25,10 +25,6 @@ const (
 	MTU        = 1300
 )
 
-var (
-	localIP = flag.String("local", "", "Local tun interface IP/MASK like 192.168.3.3/24")
-)
-
 func rcvrThread(proto string, port int, iface *water.Interface) {
 	conn, err := reuseport.NewReusableUDPPortConn(proto, fmt.Sprintf(":%v", port))
 	if nil != err {
@@ -186,12 +182,9 @@ func main() {
 	flag.Parse()
 	initConfig()
 
-	if "" == *localIP {
-		flag.Usage()
-		log.Fatalln("\nlocal ip is not specified")
-	}
+	conf := config.Load().(VPNState)
 
-	lIP, lNet, err := net.ParseCIDR(*localIP)
+	lIP, lNet, err := net.ParseCIDR(conf.Main.local)
 	if nil != err {
 		flag.Usage()
 		log.Fatalln("\nlocal ip is not in ip/cidr format")
@@ -226,8 +219,6 @@ func main() {
 	}
 
 	log.Println("Interface parameters configured")
-
-	conf := config.Load().(VPNState)
 
 	// Start listen threads
 	for i := 0; i < conf.Main.RecvThreads; i++ {

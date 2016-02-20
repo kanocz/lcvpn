@@ -8,12 +8,13 @@ Update: and about 30 minutes more to implement multithread + so_socket
 
 So, LCVPN is
   - Very light and easy (one similar config on all hosts)
+  - Use same config for all hosts (autedetect local params) - useful with puppet etc
   - Uses AES-128, AES-192 or AES-256 encryption (note that AES-256 is **much slower** than AES-128 on most conputers)
   - Communicates via UDP directly to selected host (no central server)
   - Works only on Linux (uses TUN device)
   - Multithread send and receive - scaleable for big traffc
   - Due to use so_reuseport better result in case of bigger number of hosts
-  - Please don't use it in production without testing, it's beta stage
+  - It's still in beta stage, use it on your risk
 
 ![alt tag](https://raw.githubusercontent.com/kanocz/lcvpn/master/topology.png)
 
@@ -23,10 +24,26 @@ You need golang (at least 1.5) installed and configured:
 
 ```sh
 $ go install github.com/kanocz/lcvpn
-$ sudo $GOPATH/bin/lcvpn -local 192.168.3.3/24 -config lcvpn.conf
 ```
 
-where **192.168.3.3/23** is internal vpn ip which will be setted on tun interface
+if you have config in /etc/lcvpn.conf
+
+```sh
+$ sudo $GOPATH/bin/lcvpn
+```
+
+if you want to specify different location of config (or if you need to run several instances)
+
+```sh
+$ sudo $GOPATH/bin/lcvpn -config lcvpn.conf
+```
+if you host is hidden behind firewall (with udp port forward) lcvpn is unable to detect
+which "remote" is localhost. In this case use next syntax:
+
+```sh
+$ sudo $GOPATH/bin/lcvpn -local berlin -config lcvpn.conf
+```
+
 
 ### Config example
 
@@ -36,6 +53,7 @@ port = 23456
 aeskey = 4A34E352D7C32FC42F1CEB0CAA54D40E9D1EEDAF14EBCBCECA429E1B2EF72D21
 #altkey = 1111111117C32FC42F1CEB0CAA54D40E9D1EEDAF14EBCBCECA429E1B2EF72D21
 broadcast = 192.168.3.255
+netcidr = 24
 recvThreads = 4
 sendThreads = 4
 
