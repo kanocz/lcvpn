@@ -61,10 +61,14 @@ sendThreads = 4
 [remote "prague"]
 ExtIP = 46.234.105.229
 LocIP = 192.168.3.15
+route = 192.168.10.0/24
+route = 192.168.15.0/24
+route = 192.168.20.0/24
 
 [remote "berlin"]
 ExtIP = 103.224.182.245
 LocIP = 192.168.3.8
+route = 192.168.11.0/24
 
 [remote "kiev"]
 ExtIP = 95.168.211.37
