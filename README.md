@@ -12,6 +12,7 @@ So, LCVPN is
   - Uses AES-128, AES-192 or AES-256 encryption (note that AES-256 is **much slower** than AES-128 on most conputers)
   - Communicates via UDP directly to selected host (no central server)
   - Works only on Linux (uses TUN device)
+  - Support of basic routing - can be used to connect several networks
   - Multithread send and receive - scaleable for big traffc
   - Due to use so_reuseport better result in case of bigger number of hosts
   - It's still in beta stage, use it on your risk

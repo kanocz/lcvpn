@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/kanocz/lcvpn/netlink"
 	"github.com/matishsiao/go_reuseport"
 	"github.com/milosgajdos83/tenus"
 	"github.com/songgao/water"
@@ -118,7 +119,7 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 		}
 
 		if 4 != packet.IPver() {
-			header, _ := ipv4.ParseHeader(packet)
+			header, _ := ipv4.ParseHeader(packet[2:])
 			log.Printf("Non IPv4 packet [%+v]\n", header)
 			continue
 		}
@@ -127,8 +128,33 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 		c := config.Load().(VPNState)
 
 		dst := packet.Dst()
+
+		wanted := false
+
 		addr, ok := c.remotes[dst]
-		if ok || dst == c.Main.bcastIP || packet.IsMulticast() {
+
+		if ok {
+			wanted = true
+		}
+
+		if dst == c.Main.bcastIP || packet.IsMulticast() {
+			wanted = true
+		}
+
+		// very ugly and useful only for a limited numbers of routes!
+		if !wanted {
+			ip := packet.DstV4()
+			for n, s := range c.routes {
+				if n.Contains(ip) {
+					addr = s
+					ok = true
+					wanted = true
+					break
+				}
+			}
+		}
+
+		if wanted {
 			// store orig packet len
 			packet[0] = byte(plen % 256)
 			packet[1] = byte(plen / 256)
@@ -178,9 +204,48 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 
 }
 
+func routesThread(ifaceName string, refresh chan bool) {
+	currentRoutes := map[string]bool{}
+	for {
+		<-refresh
+		log.Println("Reloading routes...")
+		conf := config.Load().(VPNState)
+
+		routes2Del := map[string]bool{}
+
+		for r := range currentRoutes {
+			routes2Del[r] = true
+		}
+
+		for r := range conf.routes {
+			rs := r.String()
+			if _, exist := routes2Del[rs]; exist {
+				delete(routes2Del, rs)
+			} else {
+				// real add route
+				currentRoutes[rs] = true
+				log.Println("Adding route:", rs)
+				err := netlink.AddRoute(rs, "", "", ifaceName)
+				if nil != err {
+					log.Println("Adding route", rs, "failed:", err)
+				}
+			}
+		}
+
+		for r := range routes2Del {
+			delete(currentRoutes, r)
+			log.Println("Removing route:", r)
+			netlink.DelRoute(r, "", "", ifaceName)
+		}
+	}
+}
+
 func main() {
 	flag.Parse()
-	initConfig()
+
+	routeReload := make(chan bool, 1)
+
+	initConfig(routeReload)
 
 	conf := config.Load().(VPNState)
 
@@ -217,6 +282,9 @@ func main() {
 	if nil != err {
 		log.Fatalln("Unable to UP interface")
 	}
+
+	// start routes changes in config monitoring
+	go routesThread(iface.Name(), routeReload)
 
 	log.Println("Interface parameters configured")
 

@@ -1,5 +1,9 @@
 package main
 
+import (
+	"net"
+)
+
 type IPPacket []byte
 
 func (p *IPPacket) IPver() int {
@@ -15,6 +19,10 @@ func (p *IPPacket) IPver() int {
 
 func (p *IPPacket) Dst() [4]byte {
 	return [4]byte{(*p)[18], (*p)[19], (*p)[20], (*p)[21]}
+}
+
+func (p *IPPacket) DstV4() net.IP {
+	return net.IPv4((*p)[18], (*p)[19], (*p)[20], (*p)[21])
 }
 
 func (p *IPPacket) Src() [4]byte {

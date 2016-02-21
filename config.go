@@ -37,9 +37,11 @@ type VPNState struct {
 	Remote map[string]*struct {
 		ExtIP string
 		LocIP string
+		Route []string
 	}
 	// filled by readConfig
 	remotes map[[4]byte]*net.UDPAddr
+	routes  map[*net.IPNet]*net.UDPAddr
 }
 
 var (
@@ -117,12 +119,17 @@ func readConfig() error {
 			return errors.New(fmt.Sprintf("Remote with id \"%s\" not found in %s"))
 		}
 		newConfig.Main.local = fmt.Sprintf("%s/%d", host.LocIP, newConfig.Main.NetCIDR)
+
+		// we don't need it in routes and so on
+		delete(newConfig.Remote, *local)
 	} else {
 		ips := getLocalIPsMap()
 		for name, r := range newConfig.Remote {
 			if _, ok := ips[r.ExtIP]; ok {
 				newConfig.Main.local = fmt.Sprintf("%s/%d", r.LocIP, newConfig.Main.NetCIDR)
 				log.Printf("%s (%s) is detected as local ip\n", newConfig.Main.local, name)
+				// we don't need it in routes and so on
+				delete(newConfig.Remote, name)
 				break
 			}
 		}
@@ -132,6 +139,8 @@ func readConfig() error {
 	}
 
 	newConfig.remotes = make(map[[4]byte]*net.UDPAddr, len(newConfig.Remote))
+	newConfig.routes = map[*net.IPNet]*net.UDPAddr{}
+
 	for name, r := range newConfig.Remote {
 
 		rmtAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", r.ExtIP, newConfig.Main.Port))
@@ -145,6 +154,14 @@ func readConfig() error {
 		}
 
 		newConfig.remotes[[4]byte{xLocalIP[12], xLocalIP[13], xLocalIP[14], xLocalIP[15]}] = rmtAddr
+
+		for _, routestr := range r.Route {
+			_, route, err := net.ParseCIDR(routestr)
+			if nil != err {
+				return errors.New(fmt.Sprintf("Invalid route %s for %s", routestr, name))
+			}
+			newConfig.routes[route] = rmtAddr
+		}
 	}
 
 	xBcastIP := net.ParseIP(newConfig.Main.Broadcast)
@@ -165,11 +182,12 @@ func readConfig() error {
 	return nil
 }
 
-func initConfig() {
+func initConfig(routeReload chan bool) {
 	err := readConfig()
 	if nil != err {
 		log.Fatalln("Error loading config:", err)
 	}
+	routeReload <- true
 
 	// setup reloading on HUP signal
 	c := make(chan os.Signal, 1)
@@ -181,6 +199,7 @@ func initConfig() {
 				log.Println("Config reload failed:", err)
 			} else {
 				log.Println("Config reloaded")
+				routeReload <- true
 			}
 		}
 	}()
