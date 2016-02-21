@@ -1114,6 +1114,101 @@ func AddRoute(destination, source, gateway, device string) error {
 	return s.HandleAck(wb.Seq)
 }
 
+// Delete route table entry.
+func DelRoute(destination, source, gateway, device string) error {
+	if destination == "" && source == "" && gateway == "" {
+		return fmt.Errorf("one of destination, source or gateway must not be blank")
+	}
+
+	s, err := getNetlinkSocket()
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
+	wb := newNetlinkRequest(syscall.RTM_DELROUTE, syscall.NLM_F_CREATE|syscall.NLM_F_EXCL|syscall.NLM_F_ACK)
+	msg := newRtMsg()
+	currentFamily := -1
+	var rtAttrs []*RtAttr
+
+	if destination != "" {
+		destIP, destNet, err := net.ParseCIDR(destination)
+		if err != nil {
+			return fmt.Errorf("destination CIDR %s couldn't be parsed", destination)
+		}
+		destFamily := getIpFamily(destIP)
+		currentFamily = destFamily
+		destLen, bits := destNet.Mask.Size()
+		if destLen == 0 && bits == 0 {
+			return fmt.Errorf("destination CIDR %s generated a non-canonical Mask", destination)
+		}
+		msg.Family = uint8(destFamily)
+		msg.Dst_len = uint8(destLen)
+		var destData []byte
+		if destFamily == syscall.AF_INET {
+			destData = destIP.To4()
+		} else {
+			destData = destIP.To16()
+		}
+		rtAttrs = append(rtAttrs, newRtAttr(syscall.RTA_DST, destData))
+	}
+
+	if source != "" {
+		srcIP := net.ParseIP(source)
+		if srcIP == nil {
+			return fmt.Errorf("source IP %s couldn't be parsed", source)
+		}
+		srcFamily := getIpFamily(srcIP)
+		if currentFamily != -1 && currentFamily != srcFamily {
+			return fmt.Errorf("source and destination ip were not the same IP family")
+		}
+		currentFamily = srcFamily
+		msg.Family = uint8(srcFamily)
+		var srcData []byte
+		if srcFamily == syscall.AF_INET {
+			srcData = srcIP.To4()
+		} else {
+			srcData = srcIP.To16()
+		}
+		rtAttrs = append(rtAttrs, newRtAttr(syscall.RTA_PREFSRC, srcData))
+	}
+
+	if gateway != "" {
+		gwIP := net.ParseIP(gateway)
+		if gwIP == nil {
+			return fmt.Errorf("gateway IP %s couldn't be parsed", gateway)
+		}
+		gwFamily := getIpFamily(gwIP)
+		if currentFamily != -1 && currentFamily != gwFamily {
+			return fmt.Errorf("gateway, source, and destination ip were not the same IP family")
+		}
+		msg.Family = uint8(gwFamily)
+		var gwData []byte
+		if gwFamily == syscall.AF_INET {
+			gwData = gwIP.To4()
+		} else {
+			gwData = gwIP.To16()
+		}
+		rtAttrs = append(rtAttrs, newRtAttr(syscall.RTA_GATEWAY, gwData))
+	}
+
+	wb.AddData(msg)
+	for _, attr := range rtAttrs {
+		wb.AddData(attr)
+	}
+
+	iface, err := net.InterfaceByName(device)
+	if err != nil {
+		return err
+	}
+	wb.AddData(uint32Attr(syscall.RTA_OIF, uint32(iface.Index)))
+
+	if err := s.Send(wb); err != nil {
+		return err
+	}
+	return s.HandleAck(wb.Seq)
+}
+
 // Add a new default gateway. Identical to:
 // ip route add default via $ip
 func AddDefaultGw(ip, device string) error {
