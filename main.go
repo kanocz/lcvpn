@@ -21,6 +21,11 @@ import (
 )
 
 const (
+	// AppVersion contains current application version for -version command flag
+	AppVersion = "0.1.0a"
+)
+
+const (
 	// I use TUN interface, so only plain IP packet, no ethernet header + mtu is set to 1300
 	BUFFERSIZE = 1500
 	MTU        = 1300
@@ -241,7 +246,14 @@ func routesThread(ifaceName string, refresh chan bool) {
 }
 
 func main() {
+
+	version := flag.Bool("version", false, "print lcvpn version")
 	flag.Parse()
+
+	if *version {
+		fmt.Println(AppVersion)
+		os.Exit(0)
+	}
 
 	routeReload := make(chan bool, 1)
 
