@@ -27,7 +27,7 @@ const (
 
 const (
 	// I use TUN interface, so only plain IP packet, no ethernet header + mtu is set to 1300
-	BUFFERSIZE = 1500
+	BUFFERSIZE = 1516
 	MTU        = 1300
 )
 
@@ -37,7 +37,7 @@ func rcvrThread(proto string, port int, iface *water.Interface) {
 		log.Fatalln("Unable to get UDP socket:", err)
 	}
 
-	buf := make([]byte, 1500)
+	buf := make([]byte, BUFFERSIZE)
 	for {
 		n, _, err := conn.ReadFrom(buf)
 
@@ -118,7 +118,7 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 
 	var packet IPPacket = make([]byte, BUFFERSIZE)
 	for {
-		plen, err := iface.Read(packet[2:])
+		plen, err := iface.Read(packet[2 : BUFFERSIZE-16])
 		if err != nil {
 			break
 		}
