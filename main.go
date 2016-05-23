@@ -27,7 +27,7 @@ const (
 
 const (
 	// I use TUN interface, so only plain IP packet, no ethernet header + mtu is set to 1300
-	BUFFERSIZE = 1516
+	BUFFERSIZE = 1518
 	MTU        = 1300
 )
 
@@ -118,7 +118,7 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 
 	var packet IPPacket = make([]byte, BUFFERSIZE)
 	for {
-		plen, err := iface.Read(packet[2 : BUFFERSIZE-16])
+		plen, err := iface.Read(packet[2 : MTU+2])
 		if err != nil {
 			break
 		}
@@ -169,6 +169,11 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 
 			if clen%aes.BlockSize != 0 {
 				clen += aes.BlockSize - (clen % aes.BlockSize)
+			}
+
+			if clen > len(packet) {
+				log.Println("clen > len(package)", clen, len(packet))
+				continue
 			}
 
 			ciphertext := make([]byte, aes.BlockSize+clen)
