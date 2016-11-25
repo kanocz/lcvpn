@@ -1,0 +1,10 @@
+[Unit]
+Description=Light decentralized VPN in golang
+After=syslog.target network.target
+
+[Service]
+ExecStart=/opt/lcvpn
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
