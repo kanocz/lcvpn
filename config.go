@@ -17,6 +17,7 @@ import (
 	"gopkg.in/gcfg.v1"
 )
 
+// VPNState represents config mixed with pre-parsed values
 type VPNState struct {
 	Main struct {
 		Port        int
@@ -72,7 +73,7 @@ func readConfig() error {
 
 	err := gcfg.ReadFileInto(&newConfig, *configfile)
 	if nil != err {
-		return errors.New(fmt.Sprintf("Error reading config \"%s\" %s", *configfile, err))
+		return fmt.Errorf("Error reading config \"%s\" %s", *configfile, err)
 	}
 	if newConfig.Main.Port < 1 || newConfig.Main.Port > 65535 {
 		return errors.New("main.port is invalid in config")
@@ -116,7 +117,7 @@ func readConfig() error {
 	if "" != *local {
 		host, ok := newConfig.Remote[*local]
 		if !ok {
-			return errors.New(fmt.Sprintf("Remote with id \"%s\" not found in %s"))
+			return fmt.Errorf("Remote with id \"%s\" not found in %s", *local, *configfile)
 		}
 		newConfig.Main.local = fmt.Sprintf("%s/%d", host.LocIP, newConfig.Main.NetCIDR)
 
@@ -134,7 +135,7 @@ func readConfig() error {
 			}
 		}
 		if "" == newConfig.Main.local {
-			return errors.New(fmt.Sprintf("Local ip can't be detected"))
+			return errors.New("Local ip can't be detected")
 		}
 	}
 
@@ -158,7 +159,7 @@ func readConfig() error {
 		for _, routestr := range r.Route {
 			_, route, err := net.ParseCIDR(routestr)
 			if nil != err {
-				return errors.New(fmt.Sprintf("Invalid route %s for %s", routestr, name))
+				return fmt.Errorf("Invalid route %s for %s", routestr, name)
 			}
 			newConfig.routes[route] = rmtAddr
 		}

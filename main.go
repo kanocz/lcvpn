@@ -27,8 +27,11 @@ const (
 
 const (
 	// I use TUN interface, so only plain IP packet, no ethernet header + mtu is set to 1300
+
+	// BUFFERSIZE is size of buffer to receive packets (little bit bigger than maximum)
 	BUFFERSIZE = 1518
-	MTU        = 1300
+	// MTU used for tunneled packets
+	MTU = 1300
 )
 
 func rcvrThread(proto string, port int, iface *water.Interface) {
