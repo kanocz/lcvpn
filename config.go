@@ -1,9 +1,6 @@
 package main
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -29,11 +26,10 @@ type VPNState struct {
 		SendThreads int
 
 		// filled by readConfig
-		bcastIP  [4]byte
-		block    cipher.Block
-		hasalt   bool
-		altblock cipher.Block
-		local    string
+		bcastIP [4]byte
+		main    PacketEncrypter
+		alt     PacketEncrypter
+		local   string
 	}
 	Remote map[string]*struct {
 		ExtIP string
@@ -81,36 +77,20 @@ func readConfig() error {
 	if newConfig.Main.NetCIDR < 8 || newConfig.Main.NetCIDR > 30 {
 		return errors.New("netCIDR can't be less than 8 or greater than 30")
 	}
+
 	if "" == newConfig.Main.AesKey {
 		return errors.New("main.aeskey is empty")
 	}
-	key, err := hex.DecodeString(newConfig.Main.AesKey)
+	newConfig.Main.main, err = newAesCbc(newConfig.Main.AesKey)
 	if nil != err {
-		return errors.New("main.aeskey is not valid hex string")
-	}
-	if (len(key) != 16) && (len(key) != 24) && (len(key) != 32) {
-		return errors.New("Length of aeskey must be 16, 24 or 32 bytes (32, 48 or 64 hex symbols) to select AES-128, AES-192 or AES-256")
-	}
-	newConfig.Main.block, err = aes.NewCipher(key)
-	if nil != err {
-		return err
+		return fmt.Errorf("main.aeskey error: %s", err.Error())
 	}
 
 	if "" != newConfig.Main.AltKey {
-		key, err := hex.DecodeString(newConfig.Main.AltKey)
+		newConfig.Main.alt, err = newAesCbc(newConfig.Main.AltKey)
 		if nil != err {
-			return errors.New("main.altkey is not valid hex string")
+			return fmt.Errorf("main.altkey error: %s", err.Error())
 		}
-		if (len(key) != 16) && (len(key) != 24) && (len(key) != 32) {
-			return errors.New("Length of altkey must be 16, 24 or 32 bytes (32, 48 or 64 hex symbols) to select AES-128, AES-192 or AES-256")
-		}
-		newConfig.Main.altblock, err = aes.NewCipher(key)
-		if nil != err {
-			return err
-		}
-		newConfig.Main.hasalt = true
-	} else {
-		newConfig.Main.hasalt = false
 	}
 
 	// local ip detect or select

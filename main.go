@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
 	"flag"
 	"fmt"
@@ -22,7 +21,7 @@ import (
 
 const (
 	// AppVersion contains current application version for -version command flag
-	AppVersion = "0.1.0a"
+	AppVersion = "0.2.0a"
 )
 
 const (
@@ -40,9 +39,11 @@ func rcvrThread(proto string, port int, iface *water.Interface) {
 		log.Fatalln("Unable to get UDP socket:", err)
 	}
 
-	buf := make([]byte, BUFFERSIZE)
+	encrypted := make([]byte, BUFFERSIZE)
+	decrypted := make([]byte, BUFFERSIZE)
+
 	for {
-		n, _, err := conn.ReadFrom(buf)
+		n, _, err := conn.ReadFrom(encrypted)
 
 		if err != nil {
 			fmt.Println("Error: ", err)
@@ -54,72 +55,40 @@ func rcvrThread(proto string, port int, iface *water.Interface) {
 			continue
 		}
 
-		if n%aes.BlockSize != 0 {
-			fmt.Println("packet size ", n, " is not a multiple of the block size")
+		conf := config.Load().(VPNState)
+
+		if !conf.Main.main.CheckSize(n) {
+			fmt.Println("invalid packet size ", n)
 			continue
 		}
 
-		iv := buf[:aes.BlockSize]
-		ciphertext := buf[aes.BlockSize:n]
-
-		conf := config.Load().(VPNState)
-
-		mode := cipher.NewCBCDecrypter(conf.Main.block, iv)
-
-		var size int
-
-		if conf.Main.hasalt {
-
-			// if we have alternative key we need store orig packet for second try
-
-			pcopy := make([]byte, n)
-			copy(pcopy, buf[:n])
-
-			mode.CryptBlocks(ciphertext, ciphertext)
-
-			size = int(ciphertext[0]) + (256 * int(ciphertext[1]))
-			if (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 || 4 != ((ciphertext)[2]>>4) {
-				// don't looks like anything is ok, trying second key
-
-				copy(buf[:n], pcopy)
-				cipher.NewCBCDecrypter(conf.Main.altblock, iv).CryptBlocks(ciphertext, ciphertext)
-
-				size = int(ciphertext[0]) + (256 * int(ciphertext[1]))
-				if (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 || 4 != ((ciphertext)[2]>>4) {
+		ne := conf.Main.main.Decrypt(encrypted[:n], decrypted)
+		size := int(decrypted[0]) + (256 * int(decrypted[1]))
+		if 0 == ne || (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 || 4 != ((decrypted)[2]>>4) {
+			if nil != conf.Main.alt {
+				ne = conf.Main.alt.Decrypt(encrypted[:n], decrypted)
+				size := int(decrypted[0]) + (256 * int(decrypted[1]))
+				if 0 == ne || (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 || 4 != ((decrypted)[2]>>4) {
 					fmt.Println("Invalid size field or IPv4 id in decrypted message", size, (n - aes.BlockSize - 2))
 					continue
 				}
 			}
-
-		} else {
-
-			mode.CryptBlocks(ciphertext, ciphertext)
-
-			size = int(ciphertext[0]) + (256 * int(ciphertext[1]))
-			if (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 {
-				fmt.Println("Invalid size field in decrypted message", size, (n - aes.BlockSize - 2))
-				continue
-			}
-
-			if 4 != ((ciphertext)[2] >> 4) {
-				fmt.Println("Non IPv4 packet after decryption, possible corupted packet")
-				continue
-			}
 		}
 
-		iface.Write(ciphertext[2 : 2+size])
-
+		iface.Write(decrypted[2 : 2+size])
 	}
 }
 
 func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 	// first time fill with random numbers
-	ivbuf := make([]byte, aes.BlockSize)
+	ivbuf := make([]byte, config.Load().(VPNState).Main.main.IVLen())
 	if _, err := io.ReadFull(rand.Reader, ivbuf); err != nil {
 		log.Fatalln("Unable to get rand data:", err)
 	}
 
 	var packet IPPacket = make([]byte, BUFFERSIZE)
+	var encrypted = make([]byte, BUFFERSIZE)
+
 	for {
 		plen, err := iface.Read(packet[2 : MTU+2])
 		if err != nil {
@@ -168,45 +137,32 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 			packet[1] = byte(plen / 256)
 
 			// encrypt
-			clen := plen + 2
-
-			if clen%aes.BlockSize != 0 {
-				clen += aes.BlockSize - (clen % aes.BlockSize)
-			}
+			clen := c.Main.main.AdjustInputSize(plen + 2)
 
 			if clen > len(packet) {
 				log.Println("clen > len(package)", clen, len(packet))
 				continue
 			}
 
-			ciphertext := make([]byte, aes.BlockSize+clen)
-			iv := ciphertext[:aes.BlockSize]
-
-			copy(iv, ivbuf)
-
-			mode := cipher.NewCBCEncrypter(c.Main.block, iv)
-			mode.CryptBlocks(ciphertext[aes.BlockSize:], packet[:clen])
-
-			// save new iv
-			copy(ivbuf, ciphertext[clen-aes.BlockSize:])
+			tsize := c.Main.main.Encrypt(packet[:clen], encrypted, ivbuf)
 
 			if ok {
-				n, err := conn.WriteToUDP(ciphertext, addr)
+				n, err := conn.WriteToUDP(encrypted[:tsize], addr)
 				if nil != err {
 					log.Println("Error sending package:", err)
 				}
-				if n != len(ciphertext) {
-					log.Println("Only ", n, " bytes of ", len(ciphertext), " sent")
+				if n != tsize {
+					log.Println("Only ", n, " bytes of ", tsize, " sent")
 				}
 			} else {
 				// multicast or broadcast
 				for _, addr := range c.remotes {
-					n, err := conn.WriteToUDP(ciphertext, addr)
+					n, err := conn.WriteToUDP(encrypted[:tsize], addr)
 					if nil != err {
 						log.Println("Error sending package:", err)
 					}
-					if n != len(ciphertext) {
-						log.Println("Only ", n, " bytes of ", len(ciphertext), " sent")
+					if n != tsize {
+						log.Println("Only ", n, " bytes of ", tsize, " sent")
 					}
 				}
 			}
