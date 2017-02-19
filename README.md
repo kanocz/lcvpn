@@ -51,7 +51,8 @@ $ sudo $GOPATH/bin/lcvpn -local berlin -config lcvpn.conf
 ```
 [main]
 port = 23456
-aeskey = 4A34E352D7C32FC42F1CEB0CAA54D40E9D1EEDAF14EBCBCECA429E1B2EF72D21
+encryption = aescbc
+mainkey = 4A34E352D7C32FC42F1CEB0CAA54D40E9D1EEDAF14EBCBCECA429E1B2EF72D21
 #altkey = 1111111117C32FC42F1CEB0CAA54D40E9D1EEDAF14EBCBCECA429E1B2EF72D21
 broadcast = 192.168.3.255
 netcidr = 24
@@ -76,8 +77,9 @@ LocIP = 192.168.3.3
 ```
 
 where port is UDP port for communication  
-aeskey is hex form of 16, 24 or 32 bytes key (for AES-128, AES-192 or AES-256)  
-number of remotes is virtualy unlimited, each takes about 256 bytes in memory
+encryption is aescbc for AES-CBC  
+for aescbc mainkey is hex form of 16, 24 or 32 bytes key (for AES-128, AES-192 or AES-256)  
+number of remotes is virtualy unlimited, each takes about 256 bytes in memory  
 
 ### Config reload
 

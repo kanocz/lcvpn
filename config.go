@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"syscall"
 
+	"strings"
+
 	"gopkg.in/gcfg.v1"
 )
 
@@ -18,8 +20,9 @@ import (
 type VPNState struct {
 	Main struct {
 		Port        int
-		AesKey      string
+		MainKey     string
 		AltKey      string
+		Encryption  string
 		Broadcast   string
 		NetCIDR     int
 		RecvThreads int
@@ -78,16 +81,21 @@ func readConfig() error {
 		return errors.New("netCIDR can't be less than 8 or greater than 30")
 	}
 
-	if "" == newConfig.Main.AesKey {
-		return errors.New("main.aeskey is empty")
+	if "" == newConfig.Main.Encryption {
+		return errors.New("main.encryption is empty")
 	}
-	newConfig.Main.main, err = newAesCbc(newConfig.Main.AesKey)
+	newEFunc, ok := registredEncrypters[strings.ToLower(newConfig.Main.Encryption)]
+	if !ok {
+		return fmt.Errorf("main.encryption type \"%s\" is unknown", newConfig.Main.Encryption)
+	}
+
+	newConfig.Main.main, err = newEFunc(newConfig.Main.MainKey)
 	if nil != err {
-		return fmt.Errorf("main.aeskey error: %s", err.Error())
+		return fmt.Errorf("main.mainkey error: %s", err.Error())
 	}
 
 	if "" != newConfig.Main.AltKey {
-		newConfig.Main.alt, err = newAesCbc(newConfig.Main.AltKey)
+		newConfig.Main.alt, err = newEFunc(newConfig.Main.AltKey)
 		if nil != err {
 			return fmt.Errorf("main.altkey error: %s", err.Error())
 		}

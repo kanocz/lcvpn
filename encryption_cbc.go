@@ -14,6 +14,10 @@ type aescbc struct {
 
 func newAesCbc(key string) (PacketEncrypter, error) {
 
+	if "" == key {
+		return nil, errors.New("key is empty")
+	}
+
 	bkey, err := hex.DecodeString(key)
 	if nil != err {
 		return nil, errors.New("not valid hex string")
@@ -66,4 +70,8 @@ func (a *aescbc) OutputAdd() int {
 
 func (a *aescbc) IVLen() int {
 	return aes.BlockSize
+}
+
+func init() {
+	registredEncrypters["aescbc"] = newAesCbc
 }

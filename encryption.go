@@ -14,3 +14,9 @@ type PacketEncrypter interface {
 	// IVLen returs bytes needed to store IV or other state
 	IVLen() int
 }
+
+type newEncrypterFunc func(string) (PacketEncrypter, error)
+
+var (
+	registredEncrypters map[string]newEncrypterFunc
+)
