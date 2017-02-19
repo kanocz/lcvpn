@@ -5,11 +5,12 @@ It was less than I can ever image - little bit more than 3 hours.
 Update: next 30 minut was spent on dynamic config reloading on HUP signal  
 Update: next 2 hours to use only one UDP socket, support broadcast and multicast, support config reload and encryption key change without going offline  
 Update: and about 30 minutes more to implement multithread + so_socket
+Update: support of different encryptions added (warning: this version is not tested yet!!!)
 
 So, LCVPN is
   - Very light and easy (one similar config on all hosts)
   - Use same config for all hosts (autedetect local params) - useful with puppet etc
-  - Uses AES-128, AES-192 or AES-256 encryption (note that AES-256 is **much slower** than AES-128 on most conputers)
+  - Uses AES-128, AES-192 or AES-256 encryption (note that AES-256 is **much slower** than AES-128 on most conputers) + optional HMAC-SHA256 or (super secure! 😅 ) NONE encryption (just copy without modification)
   - Communicates via UDP directly to selected host (no central server)
   - Works only on Linux (uses TUN device)
   - Support of basic routing - can be used to connect several networks
@@ -77,8 +78,10 @@ LocIP = 192.168.3.3
 ```
 
 where port is UDP port for communication  
-encryption is aescbc for AES-CBC  
-for aescbc mainkey is hex form of 16, 24 or 32 bytes key (for AES-128, AES-192 or AES-256)  
+encryption is *aescbc* for AES-CBC, *aescbchmac* for AES-CBC+HMAC-SHA245 or *none* for no encryption  
+for *aescbc* mainkey/altkey is hex form of 16, 24 or 32 bytes key (for AES-128, AES-192 or AES-256)  
+for *aescbchmac* mainkey/altkey is 32 bytes longer
+for *none* mainkey/altkey mainkey/altkey is just ignored
 number of remotes is virtualy unlimited, each takes about 256 bytes in memory  
 
 ### Config reload
@@ -88,9 +91,9 @@ P.S.: listening udp socket is not reopened for now, so on port change restart is
 
 ### Online key change
 
-**altkey** configuration option allows specify alternative AES key that will be used in case if decription with primary
+**altkey** configuration option allows specify alternative encryption key that will be used in case if decription with primary
 one failed. This allow to use next algoritm to change keys without link going offline:
-  - In normal state only **aeskey** is set (setting altkey is more cpu-consuming)
+  - In normal state only **mainkey** is set (setting altkey is more cpu-consuming)
   - Set altkey to new key on all hosts and send HUP signal
   - Exchange altkey and aeskey on all hosts and send HUP signal
   - Remove altkey (with old key) from configs on all hosts and send HUP signal again
