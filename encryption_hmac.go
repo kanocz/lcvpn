@@ -12,8 +12,9 @@ import (
 
 // aescbchmac implements plain AES-CBC+HMAC enctrypyion-decryption
 type aescbchmac struct {
-	c cipher.Block
-	h hash.Hash
+	c        cipher.Block
+	h        hash.Hash
+	hashsize int
 }
 
 func newAesCbcHmac(key string) (PacketEncrypter, error) {
@@ -39,11 +40,13 @@ func newAesCbcHmac(key string) (PacketEncrypter, error) {
 	}
 	a.h = hmac.New(sha256.New, bkey[lbkey-32:])
 
+	a.hashsize = a.h.Size()
+
 	return &a, nil
 }
 
 func (a *aescbchmac) CheckSize(size int) bool {
-	return size > (aes.BlockSize+32) && size%aes.BlockSize == 0
+	return size > (aes.BlockSize+a.hashsize) && size%aes.BlockSize == 0
 }
 
 func (a *aescbchmac) AdjustInputSize(size int) int {
@@ -62,24 +65,24 @@ func (a *aescbchmac) Encrypt(input []byte, output []byte, iv []byte) int {
 	copy(iv, output[inputLen:])
 	copy(output[inputLen+aes.BlockSize:], a.h.Sum(output[:inputLen+aes.BlockSize]))
 
-	return inputLen + aes.BlockSize + 32
+	return inputLen + aes.BlockSize + a.hashsize
 }
 
 func (a *aescbchmac) Decrypt(input []byte, output []byte) int {
 	inputLen := len(input)
-	test := a.h.Sum(input[:inputLen-32])
-	if !hmac.Equal(input[inputLen-32:], test) {
+	test := a.h.Sum(input[:inputLen-a.hashsize])
+	if !hmac.Equal(input[inputLen-a.hashsize:], test) {
 		return 0
 	}
 
-	resultLen := len(input) - aes.BlockSize - 32
+	resultLen := len(input) - aes.BlockSize - a.hashsize
 	cipher.NewCBCDecrypter(a.c, input[:aes.BlockSize]).CryptBlocks(input[aes.BlockSize:resultLen], output[:resultLen])
 	return resultLen
 }
 
 func (a *aescbchmac) OutputAdd() int {
 	// adding IV and HMAC-SHA256 to each message
-	return aes.BlockSize + 32
+	return aes.BlockSize + a.hashsize
 }
 
 func (a *aescbchmac) IVLen() int {
