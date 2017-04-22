@@ -63,11 +63,14 @@ func rcvrThread(proto string, port int, iface *water.Interface) {
 		}
 
 		ne := conf.Main.main.Decrypt(encrypted[:n], decrypted)
-		size := int(decrypted[0]) + (256 * int(decrypted[1]))
+		// make int from 2x byte
+		size := int(decrypted[0]) | (int(decrypted[1]) << 8)
+		// check if decrypted size if ok and if this is a ipv4 packet
+		// don't forward something is corrupted on other size OR encrypted with a wrong key
 		if 0 == ne || (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 || 4 != ((decrypted)[2]>>4) {
 			if nil != conf.Main.alt {
 				ne = conf.Main.alt.Decrypt(encrypted[:n], decrypted)
-				size := int(decrypted[0]) + (256 * int(decrypted[1]))
+				size := int(decrypted[0]) | (int(decrypted[1]) << 8)
 				if 0 == ne || (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 || 4 != ((decrypted)[2]>>4) {
 					fmt.Println("Invalid size field or IPv4 id in decrypted message", size, (n - aes.BlockSize - 2))
 					continue
@@ -133,10 +136,10 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 
 		if wanted {
 			// store orig packet len
-			packet[0] = byte(plen % 256)
-			packet[1] = byte(plen / 256)
+			packet[0] = byte(plen & 0xff)
+			packet[1] = byte((plen & 0xff00) >> 8)
 
-			// encrypt
+			// new len contatins also 2byte original size
 			clen := c.Main.main.AdjustInputSize(plen + 2)
 
 			if clen > len(packet) {
