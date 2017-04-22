@@ -24,7 +24,9 @@ func newAesCbc(key string) (PacketEncrypter, error) {
 	}
 
 	if (len(bkey) != 16) && (len(bkey) != 24) && (len(bkey) != 32) {
-		return nil, errors.New("Length of key must be 16, 24 or 32 bytes (32, 48 or 64 hex symbols) to select AES-128, AES-192 or AES-256")
+		return nil, errors.New(`Length of key must be 16, 24 or 32 bytes
+		(32, 48 or 64 hex symbols)
+		to select AES-128, AES-192 or AES-256`)
 	}
 
 	a := aescbc{}
@@ -52,14 +54,16 @@ func (a *aescbc) Encrypt(input []byte, output []byte, iv []byte) int {
 	cipher.NewCBCEncrypter(a.c, iv).CryptBlocks(output[aes.BlockSize:], input)
 
 	inputLen := len(input)
-	// whole len of output is len(input) + aes.BlockSize, so copy of last aes.BlockSize
+	// whole len of output is len(input) + aes.BlockSize,
+	// so copy of last aes.BlockSize
 	copy(iv, output[inputLen:])
 	return inputLen + aes.BlockSize
 }
 
 func (a *aescbc) Decrypt(input []byte, output []byte) int {
 	resultLen := len(input) - aes.BlockSize
-	cipher.NewCBCDecrypter(a.c, input[:aes.BlockSize]).CryptBlocks(input[aes.BlockSize:], output[:resultLen])
+	cipher.NewCBCDecrypter(a.c, input[:aes.BlockSize]).
+		CryptBlocks(input[aes.BlockSize:], output[:resultLen])
 	return resultLen
 }
 

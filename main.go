@@ -25,9 +25,11 @@ const (
 )
 
 const (
-	// I use TUN interface, so only plain IP packet, no ethernet header + mtu is set to 1300
+	// I use TUN interface, so only plain IP packet,
+	// no ethernet header + mtu is set to 1300
 
-	// BUFFERSIZE is size of buffer to receive packets (little bit bigger than maximum)
+	// BUFFERSIZE is size of buffer to receive packets
+	// (little bit bigger than maximum)
 	BUFFERSIZE = 1518
 	// MTU used for tunneled packets
 	MTU = 1300
@@ -46,7 +48,7 @@ func rcvrThread(proto string, port int, iface *water.Interface) {
 		n, _, err := conn.ReadFrom(encrypted)
 
 		if err != nil {
-			fmt.Println("Error: ", err)
+			log.Println("Error: ", err)
 			continue
 		}
 
@@ -58,7 +60,7 @@ func rcvrThread(proto string, port int, iface *water.Interface) {
 		conf := config.Load().(VPNState)
 
 		if !conf.Main.main.CheckSize(n) {
-			fmt.Println("invalid packet size ", n)
+			log.Println("invalid packet size ", n)
 			continue
 		}
 
@@ -66,19 +68,28 @@ func rcvrThread(proto string, port int, iface *water.Interface) {
 		// make int from 2x byte
 		size := int(decrypted[0]) | (int(decrypted[1]) << 8)
 		// check if decrypted size if ok and if this is a ipv4 packet
-		// don't forward something is corrupted on other size OR encrypted with a wrong key
-		if 0 == ne || (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 || 4 != ((decrypted)[2]>>4) {
+		// don't forward something is corrupted on other side
+		// OR encrypted with a wrong key
+		if 0 == ne || (n-aes.BlockSize-2)-size > 16 ||
+			(n-aes.BlockSize-2)-size < 0 || 4 != ((decrypted)[2]>>4) {
 			if nil != conf.Main.alt {
 				ne = conf.Main.alt.Decrypt(encrypted[:n], decrypted)
-				size := int(decrypted[0]) | (int(decrypted[1]) << 8)
-				if 0 == ne || (n-aes.BlockSize-2)-size > 16 || (n-aes.BlockSize-2)-size < 0 || 4 != ((decrypted)[2]>>4) {
-					fmt.Println("Invalid size field or IPv4 id in decrypted message", size, (n - aes.BlockSize - 2))
+				size = int(decrypted[0]) | (int(decrypted[1]) << 8)
+				if 0 == ne || (n-aes.BlockSize-2)-size > 16 ||
+					(n-aes.BlockSize-2)-size < 0 || 4 != ((decrypted)[2]>>4) {
+					log.Println("Invalid size field or IPv4 id in decrypted message",
+						size, (n - aes.BlockSize - 2))
 					continue
 				}
 			}
 		}
 
-		iface.Write(decrypted[2 : 2+size])
+		n, err = iface.Write(decrypted[2 : 2+size])
+		if nil != err {
+			log.Println("Error writing to local interface: ", err)
+		} else if n != size {
+			log.Println("Partial package written to local interface")
+		}
 	}
 }
 
@@ -170,7 +181,7 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 				}
 			}
 		} else {
-			fmt.Println("Unknown dst", dst)
+			log.Println("Unknown dst: ", dst)
 		}
 	}
 
@@ -207,7 +218,10 @@ func routesThread(ifaceName string, refresh chan bool) {
 		for r := range routes2Del {
 			delete(currentRoutes, r)
 			log.Println("Removing route:", r)
-			netlink.DelRoute(r, "", "", ifaceName)
+			err := netlink.DelRoute(r, "", "", ifaceName)
+			if nil != err {
+				log.Printf("Error removeing route \"%s\": %s", r, err.Error())
+			}
 		}
 	}
 }
@@ -283,7 +297,6 @@ func main() {
 	if nil != err {
 		log.Fatalln("Unable to create UDP socket:", err)
 	}
-	defer writeConn.Close()
 
 	// Start sender threads
 
@@ -295,4 +308,9 @@ func main() {
 	signal.Notify(exitChan, syscall.SIGTERM)
 
 	<-exitChan
+
+	err = writeConn.Close()
+	if nil != err {
+		log.Println("Error closing UDP connection: ", err)
+	}
 }

@@ -1,6 +1,7 @@
 package main
 
-// encnone implements just copy "enctrypyion"-"decryption" (no encryption at all!)
+// encnone implements just copy "enctrypyion"-"decryption"
+// so no encryption at all!!!
 type encnone struct {
 }
 

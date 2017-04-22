@@ -8,10 +8,9 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"sync/atomic"
 	"syscall"
-
-	"strings"
 
 	"gopkg.in/gcfg.v1"
 )
@@ -46,8 +45,9 @@ type VPNState struct {
 
 var (
 	configfile = flag.String("config", "/etc/lcvpn.conf", "Config file")
-	local      = flag.String("local", "", "ID from \"remotes\" which idtenify this host [default: autodetect]")
-	config     atomic.Value
+	local      = flag.String("local", "",
+		"ID from \"remotes\" which idtenify this host [default: autodetect]")
+	config atomic.Value
 )
 
 func getLocalIPsMap() map[string]bool {
@@ -86,7 +86,9 @@ func readConfig() error {
 	}
 	newEFunc, ok := registredEncrypters[strings.ToLower(newConfig.Main.Encryption)]
 	if !ok {
-		return fmt.Errorf("main.encryption type \"%s\" is unknown", newConfig.Main.Encryption)
+		return fmt.Errorf(
+			"main.encryption type \"%s\" is unknown",
+			newConfig.Main.Encryption)
 	}
 
 	newConfig.Main.main, err = newEFunc(newConfig.Main.MainKey)
@@ -105,9 +107,12 @@ func readConfig() error {
 	if "" != *local {
 		host, ok := newConfig.Remote[*local]
 		if !ok {
-			return fmt.Errorf("Remote with id \"%s\" not found in %s", *local, *configfile)
+			return fmt.Errorf(
+				"Remote with id \"%s\" not found in %s",
+				*local, *configfile)
 		}
-		newConfig.Main.local = fmt.Sprintf("%s/%d", host.LocIP, newConfig.Main.NetCIDR)
+		newConfig.Main.local = fmt.Sprintf("%s/%d",
+			host.LocIP, newConfig.Main.NetCIDR)
 
 		// we don't need it in routes and so on
 		delete(newConfig.Remote, *local)
@@ -132,17 +137,18 @@ func readConfig() error {
 
 	for name, r := range newConfig.Remote {
 
-		rmtAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", r.ExtIP, newConfig.Main.Port))
+		rmtAddr, err := net.ResolveUDPAddr("udp",
+			fmt.Sprintf("%s:%d", r.ExtIP, newConfig.Main.Port))
 		if nil != err {
 			return err
 		}
 
-		xLocalIP := net.ParseIP(r.LocIP)
-		if nil == xLocalIP {
+		tIP := net.ParseIP(r.LocIP)
+		if nil == tIP {
 			log.Fatalln("Invalid local ip", r.LocIP, "for server", name)
 		}
 
-		newConfig.remotes[[4]byte{xLocalIP[12], xLocalIP[13], xLocalIP[14], xLocalIP[15]}] = rmtAddr
+		newConfig.remotes[[4]byte{tIP[12], tIP[13], tIP[14], tIP[15]}] = rmtAddr
 
 		for _, routestr := range r.Route {
 			_, route, err := net.ParseCIDR(routestr)
@@ -153,9 +159,9 @@ func readConfig() error {
 		}
 	}
 
-	xBcastIP := net.ParseIP(newConfig.Main.Broadcast)
-	if nil != xBcastIP {
-		newConfig.Main.bcastIP = [4]byte{xBcastIP[12], xBcastIP[13], xBcastIP[14], xBcastIP[15]}
+	bIP := net.ParseIP(newConfig.Main.Broadcast)
+	if nil != bIP {
+		newConfig.Main.bcastIP = [4]byte{bIP[12], bIP[13], bIP[14], bIP[15]}
 	}
 
 	if newConfig.Main.RecvThreads < 1 {
@@ -182,7 +188,7 @@ func initConfig(routeReload chan bool) {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGHUP)
 	go func() {
-		for _ = range c {
+		for range c {
 			err := readConfig()
 			if nil != err {
 				log.Println("Config reload failed:", err)
