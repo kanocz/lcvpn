@@ -18,5 +18,5 @@ type PacketEncrypter interface {
 type newEncrypterFunc func(string) (PacketEncrypter, error)
 
 var (
-	registredEncrypters map[string]newEncrypterFunc
+	registredEncrypters = make(map[string]newEncrypterFunc)
 )
