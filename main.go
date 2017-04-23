@@ -12,9 +12,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/kanocz/lcvpn/netlink"
 	"github.com/matishsiao/go_reuseport"
-	"github.com/milosgajdos83/tenus"
 	"github.com/songgao/water"
 	"golang.org/x/net/ipv4"
 )
@@ -31,8 +29,6 @@ const (
 	// BUFFERSIZE is size of buffer to receive packets
 	// (little bit bigger than maximum)
 	BUFFERSIZE = 1518
-	// MTU used for tunneled packets
-	MTU = 1300
 )
 
 func rcvrThread(proto string, port int, iface *water.Interface) {
@@ -42,7 +38,7 @@ func rcvrThread(proto string, port int, iface *water.Interface) {
 	}
 
 	encrypted := make([]byte, BUFFERSIZE)
-	decrypted := make([]byte, BUFFERSIZE)
+	var decrypted IPPacket = make([]byte, BUFFERSIZE)
 
 	for {
 		n, _, err := conn.ReadFrom(encrypted)
@@ -66,7 +62,7 @@ func rcvrThread(proto string, port int, iface *water.Interface) {
 
 		ne := conf.Main.main.Decrypt(encrypted[:n], decrypted)
 		// make int from 2x byte
-		size := int(decrypted[0]) | (int(decrypted[1]) << 8)
+		size := decrypted.GetOrigSize()
 		// check if decrypted size if ok and if this is a ipv4 packet
 		// don't forward something is corrupted on other side
 		// OR encrypted with a wrong key
@@ -81,6 +77,10 @@ func rcvrThread(proto string, port int, iface *water.Interface) {
 						size, (n - aes.BlockSize - 2))
 					continue
 				}
+			} else {
+				log.Println("Invalid size field or IPv4 id in decrypted message",
+					size, (n - aes.BlockSize - 2))
+				continue
 			}
 		}
 
@@ -147,14 +147,13 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 
 		if wanted {
 			// store orig packet len
-			packet[0] = byte(plen & 0xff)
-			packet[1] = byte((plen & 0xff00) >> 8)
+			packet.SetOrigSize(plen)
 
 			// new len contatins also 2byte original size
 			clen := c.Main.main.AdjustInputSize(plen + 2)
 
-			if clen > len(packet) {
-				log.Println("clen > len(package)", clen, len(packet))
+			if clen+c.Main.main.OutputAdd() > len(packet) {
+				log.Println("clen + data > len(package)", clen, len(packet))
 				continue
 			}
 
@@ -187,45 +186,6 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 
 }
 
-func routesThread(ifaceName string, refresh chan bool) {
-	currentRoutes := map[string]bool{}
-	for {
-		<-refresh
-		log.Println("Reloading routes...")
-		conf := config.Load().(VPNState)
-
-		routes2Del := map[string]bool{}
-
-		for r := range currentRoutes {
-			routes2Del[r] = true
-		}
-
-		for r := range conf.routes {
-			rs := r.String()
-			if _, exist := routes2Del[rs]; exist {
-				delete(routes2Del, rs)
-			} else {
-				// real add route
-				currentRoutes[rs] = true
-				log.Println("Adding route:", rs)
-				err := netlink.AddRoute(rs, "", "", ifaceName)
-				if nil != err {
-					log.Println("Adding route", rs, "failed:", err)
-				}
-			}
-		}
-
-		for r := range routes2Del {
-			delete(currentRoutes, r)
-			log.Println("Removing route:", r)
-			err := netlink.DelRoute(r, "", "", ifaceName)
-			if nil != err {
-				log.Printf("Error removeing route \"%s\": %s", r, err.Error())
-			}
-		}
-	}
-}
-
 func main() {
 
 	version := flag.Bool("version", false, "print lcvpn version")
@@ -242,39 +202,7 @@ func main() {
 
 	conf := config.Load().(VPNState)
 
-	lIP, lNet, err := net.ParseCIDR(conf.Main.local)
-	if nil != err {
-		flag.Usage()
-		log.Fatalln("\nlocal ip is not in ip/cidr format")
-	}
-
-	iface, err := water.NewTUN("")
-
-	if nil != err {
-		log.Fatalln("Unable to allocate TUN interface:", err)
-	}
-
-	log.Println("Interface allocated:", iface.Name())
-
-	link, err := tenus.NewLinkFrom(iface.Name())
-	if nil != err {
-		log.Fatalln("Unable to get interface info", err)
-	}
-
-	err = link.SetLinkMTU(MTU)
-	if nil != err {
-		log.Fatalln("Unable to set MTU to 1300 on interface")
-	}
-
-	err = link.SetLinkIp(lIP, lNet)
-	if nil != err {
-		log.Fatalln("Unable to set IP to ", lIP, "/", lNet, " on interface")
-	}
-
-	err = link.SetLinkUp()
-	if nil != err {
-		log.Fatalln("Unable to UP interface")
-	}
+	iface := ifaceSetup(conf.Main.local)
 
 	// start routes changes in config monitoring
 	go routesThread(iface.Name(), routeReload)
