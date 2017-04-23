@@ -5,7 +5,17 @@ import (
 )
 
 // IPPacket offers some functions working with IPv4 (!) IP packets
+// packed for transmission wrapped into UDP
 type IPPacket []byte
+
+func (p *IPPacket) GetOrigSize() int {
+	return int((*p)[0]) | (int((*p)[1]) << 8)
+}
+
+func (p *IPPacket) SetOrigSize(plen int) {
+	(*p)[0] = byte(plen & 0xff)
+	(*p)[1] = byte((plen >> 8) & 0xff)
+}
 
 // IPver retrusn 4 or 6 for IPv4 or IPv6
 func (p *IPPacket) IPver() int {
