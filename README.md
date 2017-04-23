@@ -5,7 +5,7 @@ Originally this repo was just an answer on a question "how much time it'll take 
 So, LCVPN is
   - Very light and easy (one similar config on all hosts)
   - Use same config for all hosts (autedetect local params) - useful with puppet etc
-  - Uses AES-128, AES-192 or AES-256 encryption (note that AES-256 is **much slower** than AES-128 on most conputers) + optional HMAC-SHA256 or (super secure! 😅 ) NONE encryption (just copy without modification)
+  - Uses AES-128, AES-192 or AES-256 encryption (note that AES-256 is **much slower** than AES-128 on most computers) + optional HMAC-SHA256 or (super secure! 😅 ) NONE encryption (just copy without modification)
   - Communicates via UDP directly to selected host (no central server)
   - Works only on Linux (uses TUN device)
   - Support of basic routing - can be used to connect several networks
