@@ -8,21 +8,16 @@ import (
 // packed for transmission wrapped into UDP
 type IPPacket []byte
 
-func (p *IPPacket) GetOrigSize() int {
-	return int((*p)[0]) | (int((*p)[1]) << 8)
-}
-
-func (p *IPPacket) SetOrigSize(plen int) {
-	(*p)[0] = byte(plen & 0xff)
-	(*p)[1] = byte((plen >> 8) & 0xff)
+func (p *IPPacket) GetSize() int {
+	return int((*p)[3]) | (int((*p)[2]) << 8)
 }
 
 // IPver retrusn 4 or 6 for IPv4 or IPv6
 func (p *IPPacket) IPver() int {
-	if 4 == ((*p)[2] >> 4) {
+	if 4 == ((*p)[0] >> 4) {
 		return 4
 	}
-	if 6 == ((*p)[2] >> 4) {
+	if 6 == ((*p)[0] >> 4) {
 		return 6
 	}
 	return 0
@@ -31,20 +26,20 @@ func (p *IPPacket) IPver() int {
 
 // Dst returns [4]byte for destination of package
 func (p *IPPacket) Dst() [4]byte {
-	return [4]byte{(*p)[18], (*p)[19], (*p)[20], (*p)[21]}
+	return [4]byte{(*p)[16], (*p)[17], (*p)[18], (*p)[19]}
 }
 
 // DstV4 returns net.IP for destination of package
 func (p *IPPacket) DstV4() net.IP {
-	return net.IPv4((*p)[18], (*p)[19], (*p)[20], (*p)[21])
+	return net.IPv4((*p)[16], (*p)[17], (*p)[18], (*p)[19])
 }
 
 // Src returns [4]byte for source address of package
 func (p *IPPacket) Src() [4]byte {
-	return [4]byte{(*p)[14], (*p)[15], (*p)[16], (*p)[17]}
+	return [4]byte{(*p)[12], (*p)[13], (*p)[14], (*p)[15]}
 }
 
 // IsMulticast returns if IP destination looks like multicast
 func (p *IPPacket) IsMulticast() bool {
-	return ((*p)[18] > 223) && ((*p)[18] < 240)
+	return ((*p)[16] > 223) && ((*p)[16] < 240)
 }

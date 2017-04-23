@@ -17,6 +17,10 @@ type aescbchmac struct {
 	hashsize int
 }
 
+var (
+	HMACError = errors.New("HMAC validation failed")
+)
+
 func newAesCbcHmac(key string) (PacketEncrypter, error) {
 
 	if "" == key {
@@ -66,22 +70,23 @@ func (a *aescbchmac) Encrypt(input []byte, output []byte, iv []byte) int {
 	// whole len of output is len(input) + aes.BlockSize,
 	// so copy of last aes.BlockSize
 	copy(iv, output[inputLen:])
-	copy(output[inputLen+aes.BlockSize:], a.h.Sum(output[:inputLen+aes.BlockSize]))
+	sum := a.h.Sum(output[:inputLen+aes.BlockSize])
+	copy(output[inputLen+aes.BlockSize:], sum[:a.hashsize])
 
 	return inputLen + aes.BlockSize + a.hashsize
 }
 
-func (a *aescbchmac) Decrypt(input []byte, output []byte) int {
-	inputLen := len(input)
-	test := a.h.Sum(input[:inputLen-a.hashsize])
-	if !hmac.Equal(input[inputLen-a.hashsize:], test) {
-		return 0
+func (a *aescbchmac) Decrypt(input []byte, output []byte) (int, error) {
+	msgLen := len(input) - a.hashsize
+	test := a.h.Sum(input[:msgLen])
+	if !hmac.Equal(input[msgLen:], test[len(test)-a.hashsize:]) {
+		return 0, HMACError
 	}
 
-	resultLen := len(input) - aes.BlockSize - a.hashsize
+	resultLen := msgLen - aes.BlockSize
 	cipher.NewCBCDecrypter(a.c, input[:aes.BlockSize]).
-		CryptBlocks(input[aes.BlockSize:resultLen], output[:resultLen])
-	return resultLen
+		CryptBlocks(output, input[aes.BlockSize:aes.BlockSize+resultLen])
+	return resultLen, nil
 }
 
 func (a *aescbchmac) OutputAdd() int {

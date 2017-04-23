@@ -60,11 +60,11 @@ func (a *aescbc) Encrypt(input []byte, output []byte, iv []byte) int {
 	return inputLen + aes.BlockSize
 }
 
-func (a *aescbc) Decrypt(input []byte, output []byte) int {
+func (a *aescbc) Decrypt(input []byte, output []byte) (int, error) {
 	resultLen := len(input) - aes.BlockSize
 	cipher.NewCBCDecrypter(a.c, input[:aes.BlockSize]).
-		CryptBlocks(input[aes.BlockSize:], output[:resultLen])
-	return resultLen
+		CryptBlocks(output, input[aes.BlockSize:])
+	return resultLen, nil
 }
 
 func (a *aescbc) OutputAdd() int {

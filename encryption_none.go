@@ -25,9 +25,9 @@ func (a *encnone) Encrypt(input []byte, output []byte, iv []byte) int {
 	return len(input)
 }
 
-func (a *encnone) Decrypt(input []byte, output []byte) int {
+func (a *encnone) Decrypt(input []byte, output []byte) (int, error) {
 	copy(output, input)
-	return len(input)
+	return len(input), nil
 }
 
 func (a *encnone) OutputAdd() int {

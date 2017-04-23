@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/aes"
 	"crypto/rand"
 	"flag"
 	"fmt"
@@ -60,31 +59,21 @@ func rcvrThread(proto string, port int, iface *water.Interface) {
 			continue
 		}
 
-		ne := conf.Main.main.Decrypt(encrypted[:n], decrypted)
-		// make int from 2x byte
-		size := decrypted.GetOrigSize()
-		// check if decrypted size if ok and if this is a ipv4 packet
-		// don't forward something is corrupted on other side
-		// OR encrypted with a wrong key
-		if 0 == ne || (n-aes.BlockSize-2)-size > 16 ||
-			(n-aes.BlockSize-2)-size < 0 || 4 != ((decrypted)[2]>>4) {
+		size, mainErr := DecryptV4Chk(conf.Main.main, encrypted[:n], decrypted)
+		if nil != mainErr {
 			if nil != conf.Main.alt {
-				ne = conf.Main.alt.Decrypt(encrypted[:n], decrypted)
-				size = int(decrypted[0]) | (int(decrypted[1]) << 8)
-				if 0 == ne || (n-aes.BlockSize-2)-size > 16 ||
-					(n-aes.BlockSize-2)-size < 0 || 4 != ((decrypted)[2]>>4) {
-					log.Println("Invalid size field or IPv4 id in decrypted message",
-						size, (n - aes.BlockSize - 2))
+				size, err = DecryptV4Chk(conf.Main.alt, encrypted[:n], decrypted)
+				if nil != err {
+					log.Println("Corrupted package: ", mainErr, " / ", err)
 					continue
 				}
 			} else {
-				log.Println("Invalid size field or IPv4 id in decrypted message",
-					size, (n - aes.BlockSize - 2))
+				log.Println("Corrupted package: ", mainErr)
 				continue
 			}
 		}
 
-		n, err = iface.Write(decrypted[2 : 2+size])
+		n, err = iface.Write(decrypted[:size])
 		if nil != err {
 			log.Println("Error writing to local interface: ", err)
 		} else if n != size {
@@ -104,13 +93,13 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 	var encrypted = make([]byte, BUFFERSIZE)
 
 	for {
-		plen, err := iface.Read(packet[2 : MTU+2])
+		plen, err := iface.Read(packet[:MTU])
 		if err != nil {
 			break
 		}
 
 		if 4 != packet.IPver() {
-			header, _ := ipv4.ParseHeader(packet[2:])
+			header, _ := ipv4.ParseHeader(packet)
 			log.Printf("Non IPv4 packet [%+v]\n", header)
 			continue
 		}
@@ -146,11 +135,8 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 		}
 
 		if wanted {
-			// store orig packet len
-			packet.SetOrigSize(plen)
-
 			// new len contatins also 2byte original size
-			clen := c.Main.main.AdjustInputSize(plen + 2)
+			clen := c.Main.main.AdjustInputSize(plen)
 
 			if clen+c.Main.main.OutputAdd() > len(packet) {
 				log.Println("clen + data > len(package)", clen, len(packet))
