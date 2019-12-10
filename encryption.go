@@ -2,9 +2,6 @@ package main
 
 import (
 	"errors"
-	"log"
-
-	"golang.org/x/net/ipv4"
 )
 
 // PacketEncrypter represents wraper for encryption alg
@@ -52,9 +49,6 @@ func DecryptV4Chk(e PacketEncrypter, src []byte, dst []byte) (int, error) {
 	if size > num {
 		return 0, ePacketInvalidSize
 	}
-
-	header, _ := ipv4.ParseHeader(dst)
-	log.Println("Decrypted package: ", header)
 
 	return size, nil
 }
