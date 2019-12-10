@@ -1,11 +1,12 @@
+// +build darwin
+
 package main
 
 import (
 	"log"
-	"net"
+	"os/exec"
+	"strconv"
 
-	"github.com/kanocz/lcvpn/netlink"
-	"github.com/milosgajdos83/tenus"
 	"github.com/songgao/water"
 )
 
@@ -17,12 +18,6 @@ const (
 // ifaceSetup returns new interface OR PANIC!
 func ifaceSetup(localCIDR string) *water.Interface {
 
-	lIP, lNet, err := net.ParseCIDR(localCIDR)
-	if nil != err {
-		log.Fatalln("\nlocal ip is not in ip/cidr format")
-		panic("invalid local ip")
-	}
-
 	iface, err := water.New(water.Config{DeviceType: water.TUN})
 
 	if nil != err {
@@ -32,24 +27,8 @@ func ifaceSetup(localCIDR string) *water.Interface {
 
 	log.Println("Interface allocated:", iface.Name())
 
-	link, err := tenus.NewLinkFrom(iface.Name())
-	if nil != err {
-		log.Fatalln("Unable to get interface info", err)
-	}
-
-	err = link.SetLinkMTU(MTU)
-	if nil != err {
-		log.Fatalln("Unable to set MTU to 1300 on interface")
-	}
-
-	err = link.SetLinkIp(lIP, lNet)
-	if nil != err {
-		log.Fatalln("Unable to set IP to ", lIP, "/", lNet, " on interface")
-	}
-
-	err = link.SetLinkUp()
-	if nil != err {
-		log.Fatalln("Unable to UP interface")
+	if err := exec.Command("ifconfig", iface.Name(), "inet", localCIDR, "mtu", strconv.FormatInt(MTU, 10), "up").Run(); err != nil {
+		log.Fatalln("Unable to setup interface:", err)
 	}
 
 	return iface
@@ -76,8 +55,8 @@ func routesThread(ifaceName string, refresh chan bool) {
 				// real add route
 				currentRoutes[rs] = true
 				log.Println("Adding route:", rs)
-				err := netlink.AddRoute(rs, "", "", ifaceName)
-				if nil != err {
+
+				if err := exec.Command("route", "add", "-net", rs, "-interface", ifaceName).Run(); err != nil {
 					log.Println("Adding route", rs, "failed:", err)
 				}
 			}
@@ -86,8 +65,7 @@ func routesThread(ifaceName string, refresh chan bool) {
 		for r := range routes2Del {
 			delete(currentRoutes, r)
 			log.Println("Removing route:", r)
-			err := netlink.DelRoute(r, "", "", ifaceName)
-			if nil != err {
+			if err := exec.Command("route", "delete", "-net", r, "-interface", ifaceName).Run(); err != nil {
 				log.Printf("Error removeing route \"%s\": %s", r, err.Error())
 			}
 		}
