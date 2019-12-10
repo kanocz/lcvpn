@@ -23,7 +23,7 @@ func ifaceSetup(localCIDR string) *water.Interface {
 		panic("invalid local ip")
 	}
 
-	iface, err := water.NewTUN("")
+	iface, err := water.New(water.Config{DeviceType: water.TUN})
 
 	if nil != err {
 		log.Println("Unable to allocate TUN interface:", err)
