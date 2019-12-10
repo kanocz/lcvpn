@@ -12,7 +12,7 @@ func (p *IPPacket) GetSize() int {
 	return int((*p)[3]) | (int((*p)[2]) << 8)
 }
 
-// IPver retrusn 4 or 6 for IPv4 or IPv6
+// IPver returns 4 or 6 for IPv4 or IPv6
 func (p *IPPacket) IPver() int {
 	if 4 == ((*p)[0] >> 4) {
 		return 4

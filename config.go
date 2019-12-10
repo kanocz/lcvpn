@@ -84,7 +84,7 @@ func readConfig() error {
 	if "" == newConfig.Main.Encryption {
 		return errors.New("main.encryption is empty")
 	}
-	newEFunc, ok := registredEncrypters[strings.ToLower(newConfig.Main.Encryption)]
+	newEFunc, ok := registeredEncrypters[strings.ToLower(newConfig.Main.Encryption)]
 	if !ok {
 		return fmt.Errorf(
 			"main.encryption type \"%s\" is unknown",

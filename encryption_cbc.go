@@ -7,7 +7,7 @@ import (
 	"errors"
 )
 
-// aescbc implements plain AES-CBC enctrypyion-decryption
+// aescbc implements plain AES-CBC encryption-decryption
 type aescbc struct {
 	c cipher.Block
 }
@@ -77,5 +77,5 @@ func (a *aescbc) IVLen() int {
 }
 
 func init() {
-	registredEncrypters["aescbc"] = newAesCbc
+	registeredEncrypters["aescbc"] = newAesCbc
 }

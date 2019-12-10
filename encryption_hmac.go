@@ -10,7 +10,7 @@ import (
 	"hash"
 )
 
-// aescbchmac implements plain AES-CBC+HMAC enctrypyion-decryption
+// aescbchmac implements plain AES-CBC+HMAC encryption-decryption
 type aescbchmac struct {
 	c        cipher.Block
 	h        hash.Hash
@@ -99,5 +99,5 @@ func (a *aescbchmac) IVLen() int {
 }
 
 func init() {
-	registredEncrypters["aescbchmac"] = newAesCbcHmac
+	registeredEncrypters["aescbchmac"] = newAesCbcHmac
 }

@@ -4,7 +4,7 @@ import (
 	"errors"
 )
 
-// PacketEncrypter represents wraper for encryption alg
+// PacketEncrypter represents wrapper for encryption alg
 type PacketEncrypter interface {
 	Encrypt(input []byte, output []byte, iv []byte) int
 	Decrypt(input []byte, output []byte) (int, error)
@@ -15,14 +15,14 @@ type PacketEncrypter interface {
 	// OutputAdd returns number of bytes will be added after encryption
 	OutputAdd() int
 
-	// IVLen returs bytes needed to store IV or other state
+	// IVLen returns bytes needed to store IV or other state
 	IVLen() int
 }
 
 type newEncrypterFunc func(string) (PacketEncrypter, error)
 
 var (
-	registredEncrypters = make(map[string]newEncrypterFunc)
+	registeredEncrypters = make(map[string]newEncrypterFunc)
 
 	// predefined errors
 	ePacketSmall       = errors.New("Packet too small")

@@ -1,6 +1,6 @@
 package main
 
-// encnone implements just copy "enctrypyion"-"decryption"
+// encnone implements just copy "encryption"-"decryption"
 // so no encryption at all!!!
 type encnone struct {
 }
@@ -39,5 +39,5 @@ func (a *encnone) IVLen() int {
 }
 
 func init() {
-	registredEncrypters["none"] = newEncNone
+	registeredEncrypters["none"] = newEncNone
 }
