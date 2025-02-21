@@ -7,7 +7,7 @@ import (
 	"net"
 
 	"github.com/kanocz/lcvpn/netlink"
-	"github.com/milosgajdos83/tenus"
+	"github.com/milosgajdos/tenus"
 	"github.com/songgao/water"
 )
 
