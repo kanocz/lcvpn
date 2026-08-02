@@ -12,7 +12,6 @@ import (
 	"syscall"
 
 	"github.com/matishsiao/go_reuseport"
-	"github.com/songgao/water"
 	"golang.org/x/net/ipv4"
 )
 
@@ -30,7 +29,22 @@ const (
 	BUFFERSIZE = 1518
 )
 
-func rcvrThread(proto string, port int, iface *water.Interface, replay *replayProtector) {
+type packetInterface interface {
+	Read([]byte) (int, error)
+	Write([]byte) (int, error)
+}
+
+func refreshIV(e PacketEncrypter, iv []byte, random io.Reader) ([]byte, error) {
+	if len(iv) != e.IVLen() {
+		iv = make([]byte, e.IVLen())
+	}
+	if _, err := io.ReadFull(random, iv); err != nil {
+		return nil, err
+	}
+	return iv, nil
+}
+
+func rcvrThread(proto string, port int, iface packetInterface, replay *replayProtector) {
 	conn, err := reuseport.NewReusableUDPPortConn(proto, fmt.Sprintf(":%v", port))
 	if nil != err {
 		log.Fatalln("Unable to get UDP socket:", err)
@@ -82,21 +96,16 @@ func rcvrThread(proto string, port int, iface *water.Interface, replay *replayPr
 	}
 }
 
-func sndrThread(conn *net.UDPConn, iface *water.Interface, sender *packetSender) {
-	// first time fill with random numbers
-	ivbuf := make([]byte, config.Load().(VPNState).Main.main.IVLen())
-	if _, err := io.ReadFull(rand.Reader, ivbuf); err != nil {
-		log.Fatalln("Unable to get rand data:", err)
-	}
-
+func sndrThread(conn *net.UDPConn, iface packetInterface, sender *packetSender) error {
 	var packet IPPacket = make([]byte, BUFFERSIZE)
 	var framed = make([]byte, BUFFERSIZE)
 	var encrypted = make([]byte, BUFFERSIZE)
+	var ivbuf []byte
 
 	for {
 		plen, err := iface.Read(packet[:MTU])
 		if err != nil {
-			break
+			return fmt.Errorf("reading local interface: %w", err)
 		}
 
 		if 4 != packet.IPver() {
@@ -133,24 +142,25 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface, sender *packetSender)
 		}
 
 		if wanted {
-			sendTo := func(addr *net.UDPAddr) {
+			sendTo := func(addr *net.UDPAddr) error {
 				recipient, exists := c.remoteIDs[addr.String()]
 				if !exists {
-					log.Println("Unable to find remote identity for", addr)
-					return
+					return fmt.Errorf("unable to find remote identity for %s", addr)
 				}
 				frameLen, err := sender.Frame(addr.String(), recipient, packet[:plen], framed)
 				if nil != err {
-					log.Println("Unable to create packet frame:", err)
-					return
+					return fmt.Errorf("creating packet frame: %w", err)
 				}
 
 				clen := c.Main.main.AdjustInputSize(frameLen)
 				if clen > len(framed) || clen+c.Main.main.OutputAdd() > len(encrypted) {
-					log.Println("Encrypted packet is too large", clen, len(encrypted))
-					return
+					return fmt.Errorf("encrypted packet is too large: %d bytes", clen+c.Main.main.OutputAdd())
 				}
 				clear(framed[frameLen:clen])
+				ivbuf, err = refreshIV(c.Main.main, ivbuf, rand.Reader)
+				if nil != err {
+					return fmt.Errorf("reading random IV: %w", err)
+				}
 
 				tsize := c.Main.main.Encrypt(framed[:clen], encrypted, ivbuf)
 				n, err := conn.WriteToUDP(encrypted[:tsize], addr)
@@ -160,21 +170,25 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface, sender *packetSender)
 				if n != tsize {
 					log.Println("Only ", n, " bytes of ", tsize, " sent")
 				}
+				return nil
 			}
 
 			if ok {
-				sendTo(addr)
+				if err := sendTo(addr); err != nil {
+					return err
+				}
 			} else {
 				// multicast or broadcast
 				for _, addr := range c.remotes {
-					sendTo(addr)
+					if err := sendTo(addr); err != nil {
+						return err
+					}
 				}
 			}
 		} else {
 			log.Println("Unknown dst: ", dst)
 		}
 	}
-
 }
 
 func main() {
@@ -221,17 +235,27 @@ func main() {
 
 	// Start sender threads
 
+	senderErrors := make(chan error, conf.Main.SendThreads)
 	for i := 0; i < conf.Main.SendThreads; i++ {
-		go sndrThread(writeConn, iface, sender)
+		go func() {
+			senderErrors <- sndrThread(writeConn, iface, sender)
+		}()
 	}
 
 	exitChan := make(chan os.Signal, 1)
 	signal.Notify(exitChan, syscall.SIGTERM)
 
-	<-exitChan
+	var senderErr error
+	select {
+	case <-exitChan:
+	case senderErr = <-senderErrors:
+	}
 
 	err = writeConn.Close()
 	if nil != err {
 		log.Println("Error closing UDP connection: ", err)
+	}
+	if nil != senderErr {
+		log.Fatalln("Sender thread stopped:", senderErr)
 	}
 }

@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 package main
@@ -63,35 +64,11 @@ func routesThread(ifaceName string, refresh chan bool) {
 		<-refresh
 		log.Println("Reloading routes...")
 		conf := config.Load().(VPNState)
-
-		routes2Del := map[string]bool{}
-
-		for r := range currentRoutes {
-			routes2Del[r] = true
-		}
-
-		for r := range conf.routes {
-			rs := r.String()
-			if _, exist := routes2Del[rs]; exist {
-				delete(routes2Del, rs)
-			} else {
-				// real add route
-				currentRoutes[rs] = true
-				log.Println("Adding route:", rs)
-				err := netlink.AddRoute(rs, "", "", ifaceName)
-				if nil != err {
-					log.Println("Adding route", rs, "failed:", err)
-				}
-			}
-		}
-
-		for r := range routes2Del {
-			delete(currentRoutes, r)
-			log.Println("Removing route:", r)
-			err := netlink.DelRoute(r, "", "", ifaceName)
-			if nil != err {
-				log.Printf("Error removeing route \"%s\": %s", r, err.Error())
-			}
-		}
+		reconcileRoutes(
+			currentRoutes,
+			configuredRouteSet(conf.routes),
+			func(route string) error { return netlink.AddRoute(route, "", "", ifaceName) },
+			func(route string) error { return netlink.DelRoute(route, "", "", ifaceName) },
+		)
 	}
 }

@@ -1,3 +1,4 @@
+//go:build darwin
 // +build darwin
 
 package main
@@ -40,34 +41,15 @@ func routesThread(ifaceName string, refresh chan bool) {
 		<-refresh
 		log.Println("Reloading routes...")
 		conf := config.Load().(VPNState)
-
-		routes2Del := map[string]bool{}
-
-		for r := range currentRoutes {
-			routes2Del[r] = true
-		}
-
-		for r := range conf.routes {
-			rs := r.String()
-			if _, exist := routes2Del[rs]; exist {
-				delete(routes2Del, rs)
-			} else {
-				// real add route
-				currentRoutes[rs] = true
-				log.Println("Adding route:", rs)
-
-				if err := exec.Command("route", "add", "-net", rs, "-interface", ifaceName).Run(); err != nil {
-					log.Println("Adding route", rs, "failed:", err)
-				}
-			}
-		}
-
-		for r := range routes2Del {
-			delete(currentRoutes, r)
-			log.Println("Removing route:", r)
-			if err := exec.Command("route", "delete", "-net", r, "-interface", ifaceName).Run(); err != nil {
-				log.Printf("Error removeing route \"%s\": %s", r, err.Error())
-			}
-		}
+		reconcileRoutes(
+			currentRoutes,
+			configuredRouteSet(conf.routes),
+			func(route string) error {
+				return exec.Command("route", "add", "-net", route, "-interface", ifaceName).Run()
+			},
+			func(route string) error {
+				return exec.Command("route", "delete", "-net", route, "-interface", ifaceName).Run()
+			},
+		)
 	}
 }

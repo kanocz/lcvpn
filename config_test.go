@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -89,5 +90,22 @@ route = 10.1.2.3/8
 	err := readTestConfig(t, contents)
 	if err == nil || !strings.Contains(err.Error(), "assigned to both") {
 		t.Fatalf("readConfig() error = %v, want conflicting-route error", err)
+	}
+}
+
+func TestReadConfigFailureKeepsPreviousState(t *testing.T) {
+	valid := makeConfig("192.168.3.1", "127.0.0.2", "192.168.3.2", "192.168.3.255", "10.0.0.0/8")
+	if err := readTestConfig(t, valid); err != nil {
+		t.Fatal(err)
+	}
+	before := config.Load().(VPNState)
+
+	invalid := makeConfig("192.168.3.1", "127.0.0.2", "2001:db8::2", "192.168.3.255", "10.0.0.0/8")
+	if err := readTestConfig(t, invalid); err == nil {
+		t.Fatal("readConfig() accepted invalid reload")
+	}
+	after := config.Load().(VPNState)
+	if !reflect.DeepEqual(after, before) {
+		t.Fatal("failed reload replaced the active configuration")
 	}
 }
