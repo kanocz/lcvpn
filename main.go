@@ -122,16 +122,13 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface, sender *packetSender)
 			wanted = true
 		}
 
-		// very ugly and useful only for a limited numbers of routes!
+		// Use the most specific configured network route.
 		if !wanted {
 			ip := packet.DstV4()
-			for n, s := range c.routes {
-				if n.Contains(ip) {
-					addr = s
-					ok = true
-					wanted = true
-					break
-				}
+			if routeAddr, found := c.routeFor(ip); found {
+				addr = routeAddr
+				ok = true
+				wanted = true
 			}
 		}
 

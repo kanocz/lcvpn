@@ -27,8 +27,32 @@ var (
 	// predefined errors
 	ePacketSmall       = errors.New("Packet too small")
 	ePacketNonIPv4     = errors.New("Non IPv4 packet")
+	ePacketInvalidHdr  = errors.New("Invalid IPv4 header")
 	ePacketInvalidSize = errors.New("Stored packet size bigger then packet itself")
 )
+
+func validateIPv4Packet(packet IPPacket) (int, error) {
+	if len(packet) < 20 {
+		return 0, ePacketSmall
+	}
+	if packet.IPver() != 4 {
+		return 0, ePacketNonIPv4
+	}
+
+	headerLen := int(packet[0]&0x0f) * 4
+	if headerLen < 20 || headerLen > len(packet) {
+		return 0, ePacketInvalidHdr
+	}
+
+	size := packet.GetSize()
+	if size < headerLen {
+		return 0, ePacketInvalidHdr
+	}
+	if size > len(packet) {
+		return 0, ePacketInvalidSize
+	}
+	return size, nil
+}
 
 func DecryptV4Chk(
 	e PacketEncrypter,
@@ -51,18 +75,9 @@ func DecryptV4Chk(
 	}
 	payload := IPPacket(frame.payload)
 
-	// 2 bytes size + 20 bytes ip header
-	if len(payload) < 22 {
-		return 0, ePacketSmall
-	}
-
-	if payload.IPver() != 4 {
-		return 0, ePacketNonIPv4
-	}
-
-	size := payload.GetSize()
-	if size > len(payload) {
-		return 0, ePacketInvalidSize
+	size, err := validateIPv4Packet(payload)
+	if nil != err {
+		return 0, err
 	}
 	if replay != nil && !replay.Accept(frame.session, frame.sequence) {
 		return 0, errPacketReplay

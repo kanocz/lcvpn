@@ -45,6 +45,23 @@ type VPNState struct {
 	remoteIDs map[string][4]byte
 }
 
+// routeFor returns the most specific configured route for an IPv4 address.
+func (c VPNState) routeFor(ip net.IP) (*net.UDPAddr, bool) {
+	var selected *net.UDPAddr
+	bestPrefix := -1
+	for network, remote := range c.routes {
+		if !network.Contains(ip) {
+			continue
+		}
+		prefix, bits := network.Mask.Size()
+		if bits == net.IPv4len*8 && prefix > bestPrefix {
+			selected = remote
+			bestPrefix = prefix
+		}
+	}
+	return selected, selected != nil
+}
+
 var (
 	configfile = flag.String("config", "/etc/lcvpn.conf", "Config file")
 	local      = flag.String("local", "",
@@ -134,44 +151,67 @@ func readConfig() error {
 		}
 	}
 	localIP, _, err := net.ParseCIDR(newConfig.Main.local)
-	if nil != err || nil == localIP.To4() {
+	localIPv4 := localIP.To4()
+	if nil != err || nil == localIPv4 {
 		return fmt.Errorf("Local ip %q is not a valid IPv4 address", newConfig.Main.local)
 	}
-	copy(newConfig.Main.localIP[:], localIP.To4())
+	copy(newConfig.Main.localIP[:], localIPv4)
 
 	newConfig.remotes = make(map[[4]byte]*net.UDPAddr, len(newConfig.Remote))
 	newConfig.routes = map[*net.IPNet]*net.UDPAddr{}
 	newConfig.remoteIDs = make(map[string][4]byte, len(newConfig.Remote))
+	routeOwners := make(map[string]string)
 
 	for name, r := range newConfig.Remote {
-
-		rmtAddr, err := net.ResolveUDPAddr("udp",
-			fmt.Sprintf("%s:%d", r.ExtIP, newConfig.Main.Port))
+		if "" == r.ExtIP {
+			return fmt.Errorf("External IP is empty for server %s", name)
+		}
+		rmtAddr, err := net.ResolveUDPAddr("udp4",
+			net.JoinHostPort(r.ExtIP, fmt.Sprintf("%d", newConfig.Main.Port)))
 		if nil != err {
-			return err
+			return fmt.Errorf("Invalid external IPv4 address %s for server %s: %w", r.ExtIP, name, err)
+		}
+		if nil == rmtAddr.IP.To4() {
+			return fmt.Errorf("External address %s for server %s does not resolve to IPv4", r.ExtIP, name)
 		}
 
 		tIP := net.ParseIP(r.LocIP)
-		if nil == tIP || nil == tIP.To4() {
+		tIPv4 := tIP.To4()
+		if nil == tIP || nil == tIPv4 {
 			return fmt.Errorf("Invalid local IPv4 address %s for server %s", r.LocIP, name)
 		}
 
-		remoteID := [4]byte{tIP[12], tIP[13], tIP[14], tIP[15]}
+		remoteID := [4]byte{tIPv4[0], tIPv4[1], tIPv4[2], tIPv4[3]}
 		newConfig.remotes[remoteID] = rmtAddr
 		newConfig.remoteIDs[rmtAddr.String()] = remoteID
 
 		for _, routestr := range r.Route {
-			_, route, err := net.ParseCIDR(routestr)
+			routeIP, route, err := net.ParseCIDR(routestr)
 			if nil != err {
 				return fmt.Errorf("Invalid route %s for %s", routestr, name)
 			}
+			if nil == routeIP.To4() {
+				return fmt.Errorf("Route %s for %s is not IPv4", routestr, name)
+			}
+			canonicalRoute := route.String()
+			if owner, exists := routeOwners[canonicalRoute]; exists {
+				if owner != name {
+					return fmt.Errorf("Route %s is assigned to both %s and %s", canonicalRoute, owner, name)
+				}
+				continue
+			}
+			routeOwners[canonicalRoute] = name
 			newConfig.routes[route] = rmtAddr
 		}
 	}
 
-	bIP := net.ParseIP(newConfig.Main.Broadcast)
-	if nil != bIP {
-		newConfig.Main.bcastIP = [4]byte{bIP[12], bIP[13], bIP[14], bIP[15]}
+	if "" != newConfig.Main.Broadcast {
+		bIP := net.ParseIP(newConfig.Main.Broadcast)
+		bIPv4 := bIP.To4()
+		if nil == bIP || nil == bIPv4 {
+			return fmt.Errorf("Broadcast %q is not a valid IPv4 address", newConfig.Main.Broadcast)
+		}
+		newConfig.Main.bcastIP = [4]byte{bIPv4[0], bIPv4[1], bIPv4[2], bIPv4[3]}
 	}
 
 	if newConfig.Main.RecvThreads < 1 {

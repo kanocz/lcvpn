@@ -77,6 +77,7 @@ encryption is *aescbc* for AES-CBC, *aescbchmac* for AES-CBC+HMAC-SHA256 or *non
 for *aescbc* mainkey/altkey is hex form of 16, 24 or 32 bytes key (for AES-128, AES-192 or AES-256)  
 for *aescbchmac* mainkey/altkey is 32 bytes longer
 for *none* mainkey/altkey mainkey/altkey is just ignored
+LocIP, broadcast, route networks, and external UDP endpoints must resolve to IPv4
 number of remotes is virtualy unlimited, each takes about 256 bytes in memory  
 
 ### Config reload
