@@ -103,7 +103,11 @@ func readConfig() error {
 	if "" == newConfig.Main.Encryption {
 		return errors.New("main.encryption is empty")
 	}
-	newEFunc, ok := registeredEncrypters[strings.ToLower(newConfig.Main.Encryption)]
+	encryptionName := strings.ToLower(newConfig.Main.Encryption)
+	if encryptionName == "aescbc" {
+		return fmt.Errorf(`main.encryption type "aescbc" was renamed to %q because it does not authenticate packets`, legacyAesCbcUnsafeName)
+	}
+	newEFunc, ok := registeredEncrypters[encryptionName]
 	if !ok {
 		return fmt.Errorf(
 			"main.encryption type \"%s\" is unknown",
@@ -223,6 +227,9 @@ func readConfig() error {
 	}
 
 	config.Store(newConfig)
+	if encryptionName == legacyAesCbcUnsafeName {
+		log.Printf("WARNING: %s does not authenticate packets and is vulnerable to active attackers", legacyAesCbcUnsafeName)
+	}
 
 	return nil
 }

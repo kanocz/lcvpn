@@ -7,12 +7,15 @@ import (
 	"errors"
 )
 
-// aescbc implements plain AES-CBC encryption-decryption
-type aescbc struct {
+const legacyAesCbcUnsafeName = "legacy-aescbc-unsafe"
+
+// legacyAesCbcUnsafe implements unauthenticated AES-CBC encryption-decryption.
+// It is retained only for wire compatibility with legacy deployments.
+type legacyAesCbcUnsafe struct {
 	c cipher.Block
 }
 
-func newAesCbc(key string) (PacketEncrypter, error) {
+func newLegacyAesCbcUnsafe(key string) (PacketEncrypter, error) {
 
 	if "" == key {
 		return nil, errors.New("key is empty")
@@ -29,7 +32,7 @@ func newAesCbc(key string) (PacketEncrypter, error) {
 		to select AES-128, AES-192 or AES-256`)
 	}
 
-	a := aescbc{}
+	a := legacyAesCbcUnsafe{}
 	a.c, err = aes.NewCipher(bkey)
 	if nil != err {
 		return nil, err
@@ -38,18 +41,18 @@ func newAesCbc(key string) (PacketEncrypter, error) {
 	return &a, nil
 }
 
-func (a *aescbc) CheckSize(size int) bool {
+func (a *legacyAesCbcUnsafe) CheckSize(size int) bool {
 	return size > aes.BlockSize && size%aes.BlockSize == 0
 }
 
-func (a *aescbc) AdjustInputSize(size int) int {
+func (a *legacyAesCbcUnsafe) AdjustInputSize(size int) int {
 	if size%aes.BlockSize != 0 {
 		return size + (aes.BlockSize - (size % aes.BlockSize))
 	}
 	return size
 }
 
-func (a *aescbc) Encrypt(input []byte, output []byte, iv []byte) int {
+func (a *legacyAesCbcUnsafe) Encrypt(input []byte, output []byte, iv []byte) int {
 	copy(output[:aes.BlockSize], iv)
 	cipher.NewCBCEncrypter(a.c, iv).CryptBlocks(output[aes.BlockSize:], input)
 
@@ -60,22 +63,22 @@ func (a *aescbc) Encrypt(input []byte, output []byte, iv []byte) int {
 	return inputLen + aes.BlockSize
 }
 
-func (a *aescbc) Decrypt(input []byte, output []byte) (int, error) {
+func (a *legacyAesCbcUnsafe) Decrypt(input []byte, output []byte) (int, error) {
 	resultLen := len(input) - aes.BlockSize
 	cipher.NewCBCDecrypter(a.c, input[:aes.BlockSize]).
 		CryptBlocks(output, input[aes.BlockSize:])
 	return resultLen, nil
 }
 
-func (a *aescbc) OutputAdd() int {
+func (a *legacyAesCbcUnsafe) OutputAdd() int {
 	// adding IV to each message
 	return aes.BlockSize
 }
 
-func (a *aescbc) IVLen() int {
+func (a *legacyAesCbcUnsafe) IVLen() int {
 	return aes.BlockSize
 }
 
 func init() {
-	registeredEncrypters["aescbc"] = newAesCbc
+	registeredEncrypters[legacyAesCbcUnsafeName] = newLegacyAesCbcUnsafe
 }

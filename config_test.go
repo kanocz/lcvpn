@@ -109,3 +109,22 @@ func TestReadConfigFailureKeepsPreviousState(t *testing.T) {
 		t.Fatal("failed reload replaced the active configuration")
 	}
 }
+
+func TestLegacyAesCbcUnsafeConfigName(t *testing.T) {
+	const key = "4A34E352D7C32FC42F1CEB0CAA54D40E"
+	base := makeConfig("192.168.3.1", "127.0.0.2", "192.168.3.2", "192.168.3.255", "")
+
+	legacy := strings.Replace(base, "encryption = none", "encryption = legacy-aescbc-unsafe\nmainkey = "+key, 1)
+	if err := readTestConfig(t, legacy); err != nil {
+		t.Fatalf("readConfig() rejected legacy-aescbc-unsafe: %v", err)
+	}
+	if _, ok := config.Load().(VPNState).Main.main.(*legacyAesCbcUnsafe); !ok {
+		t.Fatalf("legacy-aescbc-unsafe constructed %T", config.Load().(VPNState).Main.main)
+	}
+
+	oldName := strings.Replace(base, "encryption = none", "encryption = aescbc\nmainkey = "+key, 1)
+	err := readTestConfig(t, oldName)
+	if err == nil || !strings.Contains(err.Error(), `renamed to "legacy-aescbc-unsafe"`) {
+		t.Fatalf("readConfig() error = %v, want migration error", err)
+	}
+}

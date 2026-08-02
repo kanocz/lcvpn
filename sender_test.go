@@ -21,7 +21,7 @@ func (f failingPacketInterface) Write(packet []byte) (int, error) {
 
 func TestRefreshIVHandlesEncryptionModeChanges(t *testing.T) {
 	none := &encnone{}
-	aesEncrypter, err := newAesCbc(strings.Repeat("00", 16))
+	aesEncrypter, err := newLegacyAesCbcUnsafe(strings.Repeat("00", 16))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestRefreshIVHandlesEncryptionModeChanges(t *testing.T) {
 }
 
 func TestRefreshIVReturnsEntropyError(t *testing.T) {
-	aesEncrypter, err := newAesCbc(strings.Repeat("00", 16))
+	aesEncrypter, err := newLegacyAesCbcUnsafe(strings.Repeat("00", 16))
 	if err != nil {
 		t.Fatal(err)
 	}

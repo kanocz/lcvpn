@@ -47,9 +47,9 @@ $ sudo $GOPATH/bin/lcvpn -local berlin -config lcvpn.conf
 ```
 [main]
 port = 23456
-encryption = aescbc
-mainkey = 4A34E352D7C32FC42F1CEB0CAA54D40E9D1EEDAF14EBCBCECA429E1B2EF72D21
-altkey = 1111111117C32FC42F1CEB0CAA54D40E9D1EEDAF14EBCBCECA429E1B2EF72D21
+encryption = aescbchmac
+mainkey = 4A34E352D7C32FC42F1CEB0CAA54D40E9D1EEDAF14EBCBCECA429E1B2EF72D219D1EEDAF14EBCBCECA429E1B2EF72D21
+altkey = 1111111117C32FC42F1CEB0CAA54D40E9D1EEDAF14EBCBCECA429E1B2EF72D219D1EEDAF14EBCBCECA429E1B2EF72D21
 broadcast = 192.168.3.255
 netcidr = 24
 recvThreads = 4
@@ -73,8 +73,9 @@ LocIP = 192.168.3.3
 ```
 
 where port is UDP port for communication  
-encryption is *aescbc* for AES-CBC, *aescbchmac* for AES-CBC+HMAC-SHA256 or *none* for no encryption
-for *aescbc* mainkey/altkey is hex form of 16, 24 or 32 bytes key (for AES-128, AES-192 or AES-256)  
+encryption is *aescbchmac* for AES-CBC+HMAC-SHA256, *legacy-aescbc-unsafe* for unauthenticated legacy AES-CBC or *none* for no encryption.
+
+For *legacy-aescbc-unsafe*, mainkey/altkey is the hex form of a 16, 24 or 32-byte key (for AES-128, AES-192 or AES-256).
 for *aescbchmac* mainkey/altkey is 32 bytes longer
 for *none* mainkey/altkey mainkey/altkey is just ignored
 LocIP, broadcast, route networks, and external UDP endpoints must resolve to IPv4
@@ -96,8 +97,10 @@ and packets older than the window. Replay state is shared by all receive threads
 but is kept in memory and is reset when the daemon restarts.
 
 The *aescbchmac* mode calculates HMAC-SHA256 over the IV and ciphertext and verifies it before decryption.
-The session ID and sequence number are inside the authenticated ciphertext. The *aescbc* and *none* modes do not
+The session ID and sequence number are inside the authenticated ciphertext. The *legacy-aescbc-unsafe* and *none* modes do not
 provide cryptographic authentication; their replay checks cannot protect against an active attacker who can modify packets.
+The former *aescbc* configuration name is intentionally rejected. Use *legacy-aescbc-unsafe* only when wire compatibility
+with an existing unauthenticated AES-CBC deployment is required.
 
 ### Online key change
 
