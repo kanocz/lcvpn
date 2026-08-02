@@ -32,6 +32,7 @@ type VPNState struct {
 		main    PacketEncrypter
 		alt     PacketEncrypter
 		local   string
+		localIP [4]byte
 	}
 	Remote map[string]*struct {
 		ExtIP string
@@ -39,8 +40,9 @@ type VPNState struct {
 		Route []string
 	}
 	// filled by readConfig
-	remotes map[[4]byte]*net.UDPAddr
-	routes  map[*net.IPNet]*net.UDPAddr
+	remotes   map[[4]byte]*net.UDPAddr
+	routes    map[*net.IPNet]*net.UDPAddr
+	remoteIDs map[string][4]byte
 }
 
 var (
@@ -131,9 +133,15 @@ func readConfig() error {
 			return errors.New("Local ip can't be detected")
 		}
 	}
+	localIP, _, err := net.ParseCIDR(newConfig.Main.local)
+	if nil != err || nil == localIP.To4() {
+		return fmt.Errorf("Local ip %q is not a valid IPv4 address", newConfig.Main.local)
+	}
+	copy(newConfig.Main.localIP[:], localIP.To4())
 
 	newConfig.remotes = make(map[[4]byte]*net.UDPAddr, len(newConfig.Remote))
 	newConfig.routes = map[*net.IPNet]*net.UDPAddr{}
+	newConfig.remoteIDs = make(map[string][4]byte, len(newConfig.Remote))
 
 	for name, r := range newConfig.Remote {
 
@@ -144,11 +152,13 @@ func readConfig() error {
 		}
 
 		tIP := net.ParseIP(r.LocIP)
-		if nil == tIP {
-			log.Fatalln("Invalid local ip", r.LocIP, "for server", name)
+		if nil == tIP || nil == tIP.To4() {
+			return fmt.Errorf("Invalid local IPv4 address %s for server %s", r.LocIP, name)
 		}
 
-		newConfig.remotes[[4]byte{tIP[12], tIP[13], tIP[14], tIP[15]}] = rmtAddr
+		remoteID := [4]byte{tIP[12], tIP[13], tIP[14], tIP[15]}
+		newConfig.remotes[remoteID] = rmtAddr
+		newConfig.remoteIDs[rmtAddr.String()] = remoteID
 
 		for _, routestr := range r.Route {
 			_, route, err := net.ParseCIDR(routestr)

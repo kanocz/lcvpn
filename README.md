@@ -73,7 +73,7 @@ LocIP = 192.168.3.3
 ```
 
 where port is UDP port for communication  
-encryption is *aescbc* for AES-CBC, *aescbchmac* for AES-CBC+HMAC-SHA245 or *none* for no encryption  
+encryption is *aescbc* for AES-CBC, *aescbchmac* for AES-CBC+HMAC-SHA256 or *none* for no encryption
 for *aescbc* mainkey/altkey is hex form of 16, 24 or 32 bytes key (for AES-128, AES-192 or AES-256)  
 for *aescbchmac* mainkey/altkey is 32 bytes longer
 for *none* mainkey/altkey mainkey/altkey is just ignored
@@ -83,6 +83,20 @@ number of remotes is virtualy unlimited, each takes about 256 bytes in memory
 
 Config is reloaded on HUP signal. In case of invalid config just log message will appeared, previous one is used.  
 P.S.: listening udp socket is not reopened for now, so on port change restart is needed
+
+### Wire protocol compatibility and replay protection
+
+Version 0.3 uses a new packet format and is not wire-compatible with older versions. Upgrade all peers together.
+Old peers reject the new frame before writing it to the TUN interface.
+
+Every packet contains the intended peer's VPN address, a random per-peer session ID, and a monotonically increasing sequence number.
+Receivers keep a 1024-packet sliding window for each session, allowing UDP reordering while rejecting duplicates
+and packets older than the window. Replay state is shared by all receive threads and survives configuration reloads,
+but is kept in memory and is reset when the daemon restarts.
+
+The *aescbchmac* mode calculates HMAC-SHA256 over the IV and ciphertext and verifies it before decryption.
+The session ID and sequence number are inside the authenticated ciphertext. The *aescbc* and *none* modes do not
+provide cryptographic authentication; their replay checks cannot protect against an active attacker who can modify packets.
 
 ### Online key change
 

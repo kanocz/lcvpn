@@ -7,13 +7,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"hash"
 )
 
 // aescbchmac implements plain AES-CBC+HMAC encryption-decryption
 type aescbchmac struct {
 	c        cipher.Block
-	h        hash.Hash
+	hmacKey  []byte
 	hashsize int
 }
 
@@ -44,9 +43,8 @@ func newAesCbcHmac(key string) (PacketEncrypter, error) {
 	if nil != err {
 		return nil, err
 	}
-	a.h = hmac.New(sha256.New, bkey[lbkey-32:])
-
-	a.hashsize = a.h.Size()
+	a.hmacKey = append([]byte(nil), bkey[lbkey-32:]...)
+	a.hashsize = sha256.Size
 
 	return &a, nil
 }
@@ -70,16 +68,19 @@ func (a *aescbchmac) Encrypt(input []byte, output []byte, iv []byte) int {
 	// whole len of output is len(input) + aes.BlockSize,
 	// so copy of last aes.BlockSize
 	copy(iv, output[inputLen:])
-	sum := a.h.Sum(output[:inputLen+aes.BlockSize])
-	copy(output[inputLen+aes.BlockSize:], sum[:a.hashsize])
+	msgLen := inputLen + aes.BlockSize
+	mac := hmac.New(sha256.New, a.hmacKey)
+	_, _ = mac.Write(output[:msgLen])
+	copy(output[msgLen:], mac.Sum(nil))
 
 	return inputLen + aes.BlockSize + a.hashsize
 }
 
 func (a *aescbchmac) Decrypt(input []byte, output []byte) (int, error) {
 	msgLen := len(input) - a.hashsize
-	test := a.h.Sum(input[:msgLen])
-	if !hmac.Equal(input[msgLen:], test[len(test)-a.hashsize:]) {
+	mac := hmac.New(sha256.New, a.hmacKey)
+	_, _ = mac.Write(input[:msgLen])
+	if !hmac.Equal(input[msgLen:], mac.Sum(nil)) {
 		return 0, HMACError
 	}
 

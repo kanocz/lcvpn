@@ -30,25 +30,44 @@ var (
 	ePacketInvalidSize = errors.New("Stored packet size bigger then packet itself")
 )
 
-func DecryptV4Chk(e PacketEncrypter, src []byte, dst []byte) (int, error) {
+func DecryptV4Chk(
+	e PacketEncrypter,
+	src []byte,
+	dst []byte,
+	replay *replayProtector,
+	recipient [packetRecipientSize]byte,
+) (int, error) {
 	num, err := e.Decrypt(src, dst)
 	if nil != err {
 		return 0, err
 	}
 
+	frame, err := parsePacketFrame(dst[:num])
+	if nil != err {
+		return 0, err
+	}
+	if frame.recipient != recipient {
+		return 0, errPacketRecipient
+	}
+	payload := IPPacket(frame.payload)
+
 	// 2 bytes size + 20 bytes ip header
-	if num < 22 {
+	if len(payload) < 22 {
 		return 0, ePacketSmall
 	}
 
-	if (*IPPacket)(&dst).IPver() != 4 {
+	if payload.IPver() != 4 {
 		return 0, ePacketNonIPv4
 	}
 
-	size := (*IPPacket)(&dst).GetSize()
-	if size > num {
+	size := payload.GetSize()
+	if size > len(payload) {
 		return 0, ePacketInvalidSize
 	}
+	if replay != nil && !replay.Accept(frame.session, frame.sequence) {
+		return 0, errPacketReplay
+	}
 
+	copy(dst[:size], payload[:size])
 	return size, nil
 }

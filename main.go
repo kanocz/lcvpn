@@ -18,7 +18,7 @@ import (
 
 const (
 	// AppVersion contains current application version for -version command flag
-	AppVersion = "0.2.0b"
+	AppVersion = "0.3.0-dev"
 )
 
 const (
@@ -30,7 +30,7 @@ const (
 	BUFFERSIZE = 1518
 )
 
-func rcvrThread(proto string, port int, iface *water.Interface) {
+func rcvrThread(proto string, port int, iface *water.Interface, replay *replayProtector) {
 	conn, err := reuseport.NewReusableUDPPortConn(proto, fmt.Sprintf(":%v", port))
 	if nil != err {
 		log.Fatalln("Unable to get UDP socket:", err)
@@ -59,10 +59,10 @@ func rcvrThread(proto string, port int, iface *water.Interface) {
 			continue
 		}
 
-		size, mainErr := DecryptV4Chk(conf.Main.main, encrypted[:n], decrypted)
+		size, mainErr := DecryptV4Chk(conf.Main.main, encrypted[:n], decrypted, replay, conf.Main.localIP)
 		if nil != mainErr {
 			if nil != conf.Main.alt {
-				size, err = DecryptV4Chk(conf.Main.alt, encrypted[:n], decrypted)
+				size, err = DecryptV4Chk(conf.Main.alt, encrypted[:n], decrypted, replay, conf.Main.localIP)
 				if nil != err {
 					log.Println("Corrupted package: ", mainErr, " / ", err)
 					continue
@@ -82,7 +82,7 @@ func rcvrThread(proto string, port int, iface *water.Interface) {
 	}
 }
 
-func sndrThread(conn *net.UDPConn, iface *water.Interface) {
+func sndrThread(conn *net.UDPConn, iface *water.Interface, sender *packetSender) {
 	// first time fill with random numbers
 	ivbuf := make([]byte, config.Load().(VPNState).Main.main.IVLen())
 	if _, err := io.ReadFull(rand.Reader, ivbuf); err != nil {
@@ -90,6 +90,7 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 	}
 
 	var packet IPPacket = make([]byte, BUFFERSIZE)
+	var framed = make([]byte, BUFFERSIZE)
 	var encrypted = make([]byte, BUFFERSIZE)
 
 	for {
@@ -135,17 +136,26 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 		}
 
 		if wanted {
-			// new len contatins also 2byte original size
-			clen := c.Main.main.AdjustInputSize(plen)
+			sendTo := func(addr *net.UDPAddr) {
+				recipient, exists := c.remoteIDs[addr.String()]
+				if !exists {
+					log.Println("Unable to find remote identity for", addr)
+					return
+				}
+				frameLen, err := sender.Frame(addr.String(), recipient, packet[:plen], framed)
+				if nil != err {
+					log.Println("Unable to create packet frame:", err)
+					return
+				}
 
-			if clen+c.Main.main.OutputAdd() > len(packet) {
-				log.Println("clen + data > len(package)", clen, len(packet))
-				continue
-			}
+				clen := c.Main.main.AdjustInputSize(frameLen)
+				if clen > len(framed) || clen+c.Main.main.OutputAdd() > len(encrypted) {
+					log.Println("Encrypted packet is too large", clen, len(encrypted))
+					return
+				}
+				clear(framed[frameLen:clen])
 
-			tsize := c.Main.main.Encrypt(packet[:clen], encrypted, ivbuf)
-
-			if ok {
+				tsize := c.Main.main.Encrypt(framed[:clen], encrypted, ivbuf)
 				n, err := conn.WriteToUDP(encrypted[:tsize], addr)
 				if nil != err {
 					log.Println("Error sending package:", err)
@@ -153,16 +163,14 @@ func sndrThread(conn *net.UDPConn, iface *water.Interface) {
 				if n != tsize {
 					log.Println("Only ", n, " bytes of ", tsize, " sent")
 				}
+			}
+
+			if ok {
+				sendTo(addr)
 			} else {
 				// multicast or broadcast
 				for _, addr := range c.remotes {
-					n, err := conn.WriteToUDP(encrypted[:tsize], addr)
-					if nil != err {
-						log.Println("Error sending package:", err)
-					}
-					if n != tsize {
-						log.Println("Only ", n, " bytes of ", tsize, " sent")
-					}
+					sendTo(addr)
 				}
 			}
 		} else {
@@ -189,6 +197,8 @@ func main() {
 	conf := config.Load().(VPNState)
 
 	iface := ifaceSetup(conf.Main.local)
+	replay := newReplayProtector()
+	sender := newPacketSender()
 
 	// start routes changes in config monitoring
 	go routesThread(iface.Name(), routeReload)
@@ -197,7 +207,7 @@ func main() {
 
 	// Start listen threads
 	for i := 0; i < conf.Main.RecvThreads; i++ {
-		go rcvrThread("udp4", conf.Main.Port, iface)
+		go rcvrThread("udp4", conf.Main.Port, iface, replay)
 	}
 
 	// init udp socket for write
@@ -215,7 +225,7 @@ func main() {
 	// Start sender threads
 
 	for i := 0; i < conf.Main.SendThreads; i++ {
-		go sndrThread(writeConn, iface)
+		go sndrThread(writeConn, iface, sender)
 	}
 
 	exitChan := make(chan os.Signal, 1)
