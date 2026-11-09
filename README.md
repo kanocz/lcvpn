@@ -70,6 +70,7 @@ route = 192.168.11.0/24
 [remote "kiev"]
 ExtIP = 95.168.211.37
 LocIP = 192.168.3.3
+AllowFrom = 95.168.211.0/24
 ```
 
 where port is UDP port for communication  
@@ -80,6 +81,20 @@ for *aescbchmac* mainkey/altkey is 32 bytes longer
 for *none* mainkey/altkey mainkey/altkey is just ignored
 LocIP, broadcast, route networks, and external UDP endpoints must resolve to IPv4
 number of remotes is virtualy unlimited, each takes about 256 bytes in memory  
+
+### Incoming packet filtering
+
+Packets are accepted only from the ExtIP addresses listed in the config. A remote whose outgoing
+traffic leaves through another address (asymmetric NAT, multi-WAN) needs `AllowFrom` in its section,
+one line per IPv4 address or CIDR network. The frame carries no sender identity, so every `AllowFrom`
+network is accepted for all peers; `AllowFrom = 0.0.0.0/0` therefore disables source filtering entirely.
+Packets from other addresses are dropped before decryption. `AllowFrom` in the local host's own section
+is ignored. This filter is new in 0.3: peers that worked
+before but send from an address other than their ExtIP show up only as a rate-limited
+"Packet from unknown source" line in the receiver's log.
+Messages about dropped packets are logged at most once per second, with a count of suppressed ones.
+
+The config file holds the keys, so lcvpn warns at startup when it is readable by other users (`chmod 600 /etc/lcvpn.conf`).
 
 ### Config reload
 

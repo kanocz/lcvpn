@@ -38,11 +38,32 @@ type VPNState struct {
 		ExtIP string
 		LocIP string
 		Route []string
+		// AllowFrom lists extra source addresses or networks this peer may
+		// send from, for NAT setups where outgoing traffic leaves via
+		// another address than ExtIP. 0.0.0.0/0 accepts any source.
+		AllowFrom []string
 	}
 	// filled by readConfig
 	remotes   map[[4]byte]*net.UDPAddr
 	routes    map[*net.IPNet]*net.UDPAddr
 	remoteIDs map[string][4]byte
+	// sources holds the external IPv4 addresses packets may arrive from
+	sources    map[[4]byte]bool
+	sourceNets []*net.IPNet
+}
+
+// allowedSource reports whether packets from this IPv4 address are accepted.
+func (c VPNState) allowedSource(src [4]byte) bool {
+	if c.sources[src] {
+		return true
+	}
+	ip := net.IP(src[:])
+	for _, network := range c.sourceNets {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // routeFor returns the most specific configured route for an IPv4 address.
@@ -92,6 +113,9 @@ func readConfig() error {
 	err := gcfg.ReadFileInto(&newConfig, *configfile)
 	if nil != err {
 		return fmt.Errorf("Error reading config \"%s\" %s", *configfile, err)
+	}
+	if info, statErr := os.Stat(*configfile); statErr == nil && info.Mode().Perm()&0o077 != 0 {
+		log.Printf("WARNING: %s contains keys but is readable by other users (mode %04o)", *configfile, info.Mode().Perm())
 	}
 	if newConfig.Main.Port < 1 || newConfig.Main.Port > 65535 {
 		return errors.New("main.port is invalid in config")
@@ -164,6 +188,7 @@ func readConfig() error {
 	newConfig.remotes = make(map[[4]byte]*net.UDPAddr, len(newConfig.Remote))
 	newConfig.routes = map[*net.IPNet]*net.UDPAddr{}
 	newConfig.remoteIDs = make(map[string][4]byte, len(newConfig.Remote))
+	newConfig.sources = make(map[[4]byte]bool, len(newConfig.Remote))
 	routeOwners := make(map[string]string)
 
 	for name, r := range newConfig.Remote {
@@ -186,8 +211,27 @@ func readConfig() error {
 		}
 
 		remoteID := [4]byte{tIPv4[0], tIPv4[1], tIPv4[2], tIPv4[3]}
+		if _, dup := newConfig.remotes[remoteID]; dup {
+			return fmt.Errorf("LocIP %s is used by more than one remote", r.LocIP)
+		}
+		if _, dup := newConfig.remoteIDs[rmtAddr.String()]; dup {
+			return fmt.Errorf("ExtIP %s is used by more than one remote", r.ExtIP)
+		}
 		newConfig.remotes[remoteID] = rmtAddr
 		newConfig.remoteIDs[rmtAddr.String()] = remoteID
+		extIPv4 := rmtAddr.IP.To4()
+		newConfig.sources[[4]byte{extIPv4[0], extIPv4[1], extIPv4[2], extIPv4[3]}] = true
+
+		for _, allow := range r.AllowFrom {
+			if !strings.Contains(allow, "/") {
+				allow += "/32"
+			}
+			allowIP, allowNet, err := net.ParseCIDR(allow)
+			if nil != err || nil == allowIP.To4() {
+				return fmt.Errorf("Invalid AllowFrom %q for %s: must be an IPv4 address or network", allow, name)
+			}
+			newConfig.sourceNets = append(newConfig.sourceNets, allowNet)
+		}
 
 		for _, routestr := range r.Route {
 			routeIP, route, err := net.ParseCIDR(routestr)

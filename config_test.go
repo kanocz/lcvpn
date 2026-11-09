@@ -128,3 +128,66 @@ func TestLegacyAesCbcUnsafeConfigName(t *testing.T) {
 		t.Fatalf("readConfig() error = %v, want migration error", err)
 	}
 }
+
+func TestReadConfigRejectsDuplicatePeerAddresses(t *testing.T) {
+	base := makeConfig("192.168.3.1", "127.0.0.2", "192.168.3.2", "192.168.3.255", "")
+	tests := []struct {
+		name  string
+		extra string
+		want  string
+	}{
+		{name: "LocIP", extra: "[remote \"other\"]\nExtIP = 127.0.0.3\nLocIP = 192.168.3.2\n", want: "LocIP 192.168.3.2"},
+		{name: "ExtIP", extra: "[remote \"other\"]\nExtIP = 127.0.0.2\nLocIP = 192.168.3.3\n", want: "ExtIP 127.0.0.2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := readTestConfig(t, base+"\n"+tt.extra)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("readConfig() error = %v, want duplicate %s error", err, tt.name)
+			}
+		})
+	}
+}
+
+func TestReadConfigBuildsSourceSet(t *testing.T) {
+	if err := readTestConfig(t, makeConfig("192.168.3.1", "127.0.0.2", "192.168.3.2", "192.168.3.255", "")); err != nil {
+		t.Fatal(err)
+	}
+	conf := config.Load().(VPNState)
+	if !conf.sources[[4]byte{127, 0, 0, 2}] {
+		t.Fatal("peer ExtIP is missing from sources")
+	}
+	if conf.sources[[4]byte{127, 0, 0, 1}] {
+		t.Fatal("local host must not be in sources")
+	}
+}
+
+func TestReadConfigAllowFrom(t *testing.T) {
+	base := makeConfig("192.168.3.1", "127.0.0.2", "192.168.3.2", "192.168.3.255", "")
+	contents := base + "AllowFrom = 203.0.113.0/24\nAllowFrom = 198.51.100.7\n"
+	if err := readTestConfig(t, contents); err != nil {
+		t.Fatal(err)
+	}
+	conf := config.Load().(VPNState)
+	for _, tt := range []struct {
+		src  [4]byte
+		want bool
+	}{
+		{[4]byte{127, 0, 0, 2}, true},
+		{[4]byte{203, 0, 113, 9}, true},
+		{[4]byte{198, 51, 100, 7}, true},
+		{[4]byte{198, 51, 100, 8}, false},
+		{[4]byte{10, 0, 0, 1}, false},
+	} {
+		if got := conf.allowedSource(tt.src); got != tt.want {
+			t.Errorf("allowedSource(%v) = %v, want %v", tt.src, got, tt.want)
+		}
+	}
+
+	if err := readTestConfig(t, base+"AllowFrom = 2001:db8::/32\n"); err == nil {
+		t.Fatal("readConfig() accepted an IPv6 AllowFrom")
+	}
+	if err := readTestConfig(t, base+"AllowFrom = not-an-address\n"); err == nil {
+		t.Fatal("readConfig() accepted an invalid AllowFrom")
+	}
+}

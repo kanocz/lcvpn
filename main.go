@@ -12,7 +12,6 @@ import (
 	"syscall"
 
 	"github.com/matishsiao/go_reuseport"
-	"golang.org/x/net/ipv4"
 )
 
 const (
@@ -54,7 +53,7 @@ func rcvrThread(proto string, port int, iface packetInterface, replay *replayPro
 	var decrypted IPPacket = make([]byte, BUFFERSIZE)
 
 	for {
-		n, _, err := conn.ReadFrom(encrypted)
+		n, from, err := conn.ReadFrom(encrypted)
 
 		if err != nil {
 			log.Println("Error: ", err)
@@ -68,8 +67,14 @@ func rcvrThread(proto string, port int, iface packetInterface, replay *replayPro
 
 		conf := config.Load().(VPNState)
 
+		// Drop packets from unknown hosts before spending HMAC on them.
+		if src, ok := sourceID(from); !ok || !conf.allowedSource(src) {
+			badPacketLog.Printf("Packet from unknown source %s", from)
+			continue
+		}
+
 		if !conf.Main.main.CheckSize(n) {
-			log.Println("invalid packet size ", n)
+			peerPacketLog.Printf("Invalid packet size %d from %s", n, from)
 			continue
 		}
 
@@ -78,11 +83,11 @@ func rcvrThread(proto string, port int, iface packetInterface, replay *replayPro
 			if nil != conf.Main.alt {
 				size, err = DecryptV4Chk(conf.Main.alt, encrypted[:n], decrypted, replay, conf.Main.localIP)
 				if nil != err {
-					log.Println("Corrupted package: ", mainErr, " / ", err)
+					peerPacketLog.Printf("Corrupted packet from %s: %v / %v", from, mainErr, err)
 					continue
 				}
 			} else {
-				log.Println("Corrupted package: ", mainErr)
+				peerPacketLog.Printf("Corrupted packet from %s: %v", from, mainErr)
 				continue
 			}
 		}
@@ -108,9 +113,9 @@ func sndrThread(conn *net.UDPConn, iface packetInterface, sender *packetSender) 
 			return fmt.Errorf("reading local interface: %w", err)
 		}
 
-		if 4 != packet.IPver() {
-			header, _ := ipv4.ParseHeader(packet)
-			log.Printf("Non IPv4 packet [%+v]\n", header)
+		// Shorter than an IPv4 header: Dst() would read stale buffer bytes.
+		if plen < 20 || 4 != packet.IPver() {
+			localPacketLog.Printf("Dropping non-IPv4 packet of %d bytes from local interface", plen)
 			continue
 		}
 
@@ -186,7 +191,7 @@ func sndrThread(conn *net.UDPConn, iface packetInterface, sender *packetSender) 
 				}
 			}
 		} else {
-			log.Println("Unknown dst: ", dst)
+			localPacketLog.Printf("Unknown dst: %v", dst)
 		}
 	}
 }
